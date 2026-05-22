@@ -90,11 +90,101 @@ the pause behavior.
 
 ## 8. Deploying to Vercel
 
-1. Push this repo to GitHub (already done).
-2. Go to [vercel.com](https://vercel.com), import the `CursedFork/Newborn-Plus` repo.
-3. Add the environment variables from `.env.local` in the Vercel dashboard
-   (**Settings → Environment Variables**).
-4. Set `NEXT_PUBLIC_APP_URL` to your Vercel deployment URL.
-5. Go back to Supabase **Authentication → URL Configuration** and add your Vercel URL
-   to **Redirect URLs**.
-6. Deploy.
+### 8a. Import the repo
+
+1. Go to [vercel.com](https://vercel.com) and sign in (or create a free account — use the
+   same GitHub account that owns `CursedFork/Newborn-Plus`).
+2. Click **Add New… → Project**.
+3. Under **Import Git Repository**, find `CursedFork/Newborn-Plus` and click **Import**.
+4. Vercel will detect Next.js automatically. Leave **Framework Preset** as **Next.js** and
+   **Root Directory** as `./`. Do not change the build or output settings.
+
+### 8b. Add environment variables
+
+Before clicking Deploy, scroll down to **Environment Variables** and add each of these.
+Set all four for **Production**, **Preview**, and **Development** (the default).
+
+| Name | Value | Where to find it |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://xxxx.supabase.co` | Supabase → Project Settings → API → Project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJ…` | Supabase → Project Settings → API → anon / public |
+| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ…` | Supabase → Project Settings → API → service_role / secret |
+| `NEXT_PUBLIC_APP_URL` | *(leave blank for now — fill in after step 8c)* | — |
+
+> The service role key is server-only. Vercel never sends it to the browser. Do not put it
+> in any `NEXT_PUBLIC_` variable.
+
+Click **Deploy** and wait for the first build to finish (~1–2 minutes).
+
+### 8c. Copy your deployment URL and finish wiring
+
+After the build succeeds Vercel shows a URL like `newborn-plus.vercel.app` (or a random
+name). Copy it.
+
+**In Vercel:**
+1. Go to your project → **Settings → Environment Variables**.
+2. Find `NEXT_PUBLIC_APP_URL`, edit it, and set the value to your production URL:
+   `https://newborn-plus.vercel.app` (with `https://`, no trailing slash).
+3. Click **Save**. This triggers a new deployment automatically — wait for it to finish.
+
+**In Supabase — update Auth redirect URLs:**
+1. Go to **Authentication → URL Configuration**.
+2. Set **Site URL** to `https://newborn-plus.vercel.app`.
+3. Under **Redirect URLs**, add:
+   - `https://newborn-plus.vercel.app/auth/callback`
+   - `http://localhost:3000/auth/callback` (keep this for local dev)
+4. Click **Save**.
+
+> If you have a custom domain (e.g. `newbornplus.app`), add it to Redirect URLs as well.
+> You can add a custom domain in Vercel → Settings → Domains at any time.
+
+### 8d. Verify the deployment
+
+1. Open your Vercel URL in a browser.
+2. Try signing up with your email address — you should receive a magic link.
+3. Click the link → you should land on `/home` (the dashboard).
+4. If the home screen says "No baby profile found", go to **Settings → Add / change baby**
+   and create your baby profile.
+5. Try logging a feed — it should save and the home screen should update.
+
+If anything looks wrong, check **Vercel → Deployments → (latest) → Functions** for server
+errors, and **Browser DevTools → Console** for client errors.
+
+### 8e. Set up the nightly backup (recommended)
+
+The GitHub Actions workflow in `.github/workflows/backup.yml` runs every night at 4 AM UTC,
+dumps the database, encrypts it, and commits it to the repo's `/backups` folder.
+
+**To activate it, add these three secrets to the GitHub repo:**
+
+1. Go to `https://github.com/CursedFork/Newborn-Plus/settings/secrets/actions`.
+2. Click **New repository secret** for each:
+
+| Secret name | Value | Where to find it |
+|---|---|---|
+| `SUPABASE_DB_HOST` | `db.xxxx.supabase.co` | Supabase → Project Settings → Database → **Host** field |
+| `SUPABASE_DB_PASSWORD` | the password you chose in step 1 | your password manager |
+| `BACKUP_GPG_PASSPHRASE` | any strong passphrase you choose | keep this in your password manager — you need it to decrypt backups |
+
+3. After adding all three secrets, go to **Actions → Nightly database backup → Run workflow**
+   to do a manual test run. Check that a new commit appears in `/backups/daily/`.
+
+> The database password is the one you set when creating the Supabase project (step 1).
+> If you forgot it, reset it in Supabase → Project Settings → Database → Reset database password.
+
+### 8f. Restoring from a backup
+
+**From the encrypted dump:**
+```bash
+# Decrypt
+gpg --batch --passphrase "YOUR_GPG_PASSPHRASE" --decrypt backup.pgdump.gpg > backup.pgdump
+
+# Restore to a fresh Supabase project (get connection string from Supabase → Settings → Database)
+pg_restore --clean --if-exists --no-owner --no-acl \
+  -d "postgresql://postgres:PASSWORD@db.xxxx.supabase.co:5432/postgres" \
+  backup.pgdump
+```
+
+**From a JSON export (simpler):**
+On the Export page inside the app, click **Download JSON**. This file contains all your data
+in a structured format and can be re-imported manually or via a migration script.
