@@ -128,3 +128,8 @@
     @apply font-sans;
   }
 }
+
+/* When a background theme is active, let the SVG art show through */
+.has-theme body {
+  background-color: transparent;
+}
