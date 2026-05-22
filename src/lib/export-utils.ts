@@ -147,6 +147,6 @@ export function formatLocalDate(iso: string): string {
 
 export function ageInDays(birthDate: string, at: Date = new Date()): number {
   return Math.floor(
-    (at.getTime() - new Date(birthDate).getTime()) / (1000 * 60 * 60 * 24)
+    (at.getTime() - new Date(birthDate + 'T12:00:00Z').getTime()) / (1000 * 60 * 60 * 24)
   )
 }

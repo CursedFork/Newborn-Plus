@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Mic, MicOff, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { toLocalInputValue } from '@/lib/time'
 import type { CreamType, RashStatus, PoopColor, PoopConsistency } from '@/lib/database.types'
 
 interface Props {
@@ -31,7 +32,7 @@ export default function DiaperModal({ open, babyId, onClose, onSaved }: Props) {
   const [creamApplied, setCreamApplied] = useState<CreamType>('none')
   const [rashStatus, setRashStatus] = useState<RashStatus | ''>('')
   const [notes, setNotes] = useState('')
-  const [changedAt, setChangedAt] = useState(new Date().toISOString().slice(0, 16))
+  const [changedAt, setChangedAt] = useState(toLocalInputValue())
   const [saving, setSaving] = useState(false)
   const [lastSavedId, setLastSavedId] = useState<string | null>(null)
 
@@ -42,7 +43,7 @@ export default function DiaperModal({ open, babyId, onClose, onSaved }: Props) {
 
   useEffect(() => {
     if (!open) return
-    setChangedAt(new Date().toISOString().slice(0, 16))
+    setChangedAt(toLocalInputValue())
     setPee(true); setPoop(false); setPoopColor(''); setPoopConsistency('')
     setVolumeNotes(''); setCreamApplied('none'); setRashStatus(''); setNotes('')
     setVoiceUrl(null); setLastSavedId(null)

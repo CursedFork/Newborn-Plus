@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider'
 import { Mic, MicOff, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { toLocalInputValue } from '@/lib/time'
 import type { FeedType } from '@/lib/database.types'
 
 interface Props {
@@ -34,7 +35,7 @@ export default function FeedModal({ open, babyId, onClose, onSaved }: Props) {
   const [spitUp, setSpitUp] = useState(false)
   const [spitUpNotes, setSpitUpNotes] = useState('')
   const [fusinessNotes, setFussinessNotes] = useState('')
-  const [startAt, setStartAt] = useState(new Date().toISOString().slice(0, 16))
+  const [startAt, setStartAt] = useState(toLocalInputValue())
   const [saving, setSaving] = useState(false)
   const [lastSavedId, setLastSavedId] = useState<string | null>(null)
 
@@ -62,7 +63,7 @@ export default function FeedModal({ open, babyId, onClose, onSaved }: Props) {
           if (data.bottle_type) setBottleType(data.bottle_type)
         }
       })
-    setStartAt(new Date().toISOString().slice(0, 16))
+    setStartAt(toLocalInputValue())
     setSpitUp(false)
     setSpitUpNotes('')
     setFussinessNotes('')

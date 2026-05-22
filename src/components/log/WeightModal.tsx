@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { toLocalInputValue } from '@/lib/time'
 import { formatOz } from '@/lib/who/percentiles'
 
 interface Props {
@@ -25,13 +26,13 @@ export default function WeightModal({ open, babyId, onClose, onSaved }: Props) {
   const [ounces, setOunces] = useState('')
   const [location, setLocation] = useState('')
   const [notes, setNotes] = useState('')
-  const [measuredAt, setMeasuredAt] = useState(new Date().toISOString().slice(0, 16))
+  const [measuredAt, setMeasuredAt] = useState(toLocalInputValue())
   const [saving, setSaving] = useState(false)
   const [lastSavedId, setLastSavedId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
-    setMeasuredAt(new Date().toISOString().slice(0, 16))
+    setMeasuredAt(toLocalInputValue())
     setPounds(''); setOunces(''); setLocation(''); setNotes('')
     setLastSavedId(null)
   }, [open])

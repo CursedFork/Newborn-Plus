@@ -76,7 +76,7 @@ export default function HomePage() {
   if (!baby) return <NoBabyPrompt />
 
   const ageDays = Math.floor(
-    (Date.now() - new Date(baby.birth_date).getTime()) / (1000 * 60 * 60 * 24)
+    (Date.now() - new Date(baby.birth_date + 'T12:00:00Z').getTime()) / (1000 * 60 * 60 * 24)
   )
 
   return (

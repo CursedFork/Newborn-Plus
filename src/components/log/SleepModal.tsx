@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Mic, MicOff, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { toLocalInputValue } from '@/lib/time'
 import type { SleepLocation, SleepWakeReason } from '@/lib/database.types'
 
 interface Props {
@@ -23,7 +24,7 @@ export default function SleepModal({ open, babyId, onClose, onSaved }: Props) {
   const supabase = createClient()
 
   const [location, setLocation] = useState<SleepLocation>('bassinet')
-  const [startAt, setStartAt] = useState(new Date().toISOString().slice(0, 16))
+  const [startAt, setStartAt] = useState(toLocalInputValue())
   const [endAt, setEndAt] = useState('')
   const [wokenBy, setWokenBy] = useState<SleepWakeReason | ''>('')
   const [notes, setNotes] = useState('')
@@ -45,7 +46,7 @@ export default function SleepModal({ open, babyId, onClose, onSaved }: Props) {
       .limit(1)
       .single()
       .then(({ data }) => { if (data) setLocation(data.location as SleepLocation) })
-    setStartAt(new Date().toISOString().slice(0, 16))
+    setStartAt(toLocalInputValue())
     setEndAt(''); setWokenBy(''); setNotes('')
     setVoiceUrl(null); setLastSavedId(null)
   }, [open, babyId, supabase])

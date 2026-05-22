@@ -98,7 +98,7 @@ export default function ExportReport({
         <div className="space-y-1">
           <h1 className="text-2xl font-bold">{baby.name}</h1>
           <div className="text-sm text-muted-foreground space-y-0.5">
-            <p>Date of birth: {new Date(baby.birth_date).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+            <p>Date of birth: {new Date(baby.birth_date + 'T12:00:00Z').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</p>
             <p>Age: {ageDays} day{ageDays !== 1 ? 's' : ''}</p>
             {baby.birth_weight_oz != null && <p>Birth weight: {formatOz(baby.birth_weight_oz)}</p>}
             <p>Report period: {new Date(dateStart + 'T12:00:00Z').toLocaleDateString()} – {new Date(dateEnd + 'T12:00:00Z').toLocaleDateString()}</p>

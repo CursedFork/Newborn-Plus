@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider'
 import { Mic, MicOff, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { toLocalInputValue } from '@/lib/time'
 import type { PumpOutputType, PumpSide } from '@/lib/database.types'
 
 interface Props {
@@ -28,7 +29,7 @@ export default function PumpModal({ open, babyId, onClose, onSaved }: Props) {
   const [durationMin, setDurationMin] = useState<number | undefined>()
   const [side, setSide] = useState<PumpSide | ''>('')
   const [consistencyNotes, setConsistencyNotes] = useState('')
-  const [startAt, setStartAt] = useState(new Date().toISOString().slice(0, 16))
+  const [startAt, setStartAt] = useState(toLocalInputValue())
   const [saving, setSaving] = useState(false)
   const [lastSavedId, setLastSavedId] = useState<string | null>(null)
 
@@ -53,7 +54,7 @@ export default function PumpModal({ open, babyId, onClose, onSaved }: Props) {
           if (data.side) setSide(data.side as PumpSide)
         }
       })
-    setStartAt(new Date().toISOString().slice(0, 16))
+    setStartAt(toLocalInputValue())
     setConsistencyNotes(''); setDurationMin(undefined)
     setVoiceUrl(null); setLastSavedId(null)
   }, [open, babyId, supabase])

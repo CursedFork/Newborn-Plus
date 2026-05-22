@@ -8,7 +8,22 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
+import { localTimezone } from '@/lib/time'
 import type { BabySex } from '@/lib/database.types'
+
+const COMMON_TIMEZONES = [
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Phoenix',
+  'America/Los_Angeles',
+  'America/Anchorage',
+  'Pacific/Honolulu',
+  'Europe/London',
+  'Europe/Paris',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+]
 
 export default function NewBabyPage() {
   const supabase = createClient()
@@ -19,6 +34,10 @@ export default function NewBabyPage() {
   const [sex, setSex] = useState<BabySex>('unspecified')
   const [birthWeightLb, setBirthWeightLb] = useState('')
   const [birthWeightOz, setBirthWeightOz] = useState('')
+  const [timezone, setTimezone] = useState(() => {
+    const detected = localTimezone()
+    return COMMON_TIMEZONES.includes(detected) ? detected : 'America/New_York'
+  })
   const [saving, setSaving] = useState(false)
 
   const totalBirthOz =
@@ -46,6 +65,7 @@ export default function NewBabyPage() {
         birth_date: birthDate,
         sex,
         birth_weight_oz: totalBirthOz > 0 ? totalBirthOz : null,
+        timezone,
       })
 
     if (babyError) { toast.error(babyError.message); setSaving(false); return }
@@ -104,6 +124,19 @@ export default function NewBabyPage() {
             <p className="text-xs text-muted-foreground mt-1 text-center">oz</p>
           </div>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Timezone</Label>
+        <Select value={timezone} onValueChange={(v) => v != null && setTimezone(v)}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {COMMON_TIMEZONES.map((tz) => (
+              <SelectItem key={tz} value={tz}>{tz.replace('_', ' ')}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">Used for daily summaries — auto-detected from your device.</p>
       </div>
 
       <Button className="w-full h-14 text-base" onClick={save} disabled={saving}>

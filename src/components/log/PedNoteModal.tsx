@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { toLocalInputValue } from '@/lib/time'
 import type { PedNoteType } from '@/lib/database.types'
 
 interface Props {
@@ -24,13 +25,13 @@ export default function PedNoteModal({ open, babyId, onClose, onSaved }: Props) 
 
   const [type, setType] = useState<PedNoteType>('question')
   const [content, setContent] = useState('')
-  const [occurredAt, setOccurredAt] = useState(new Date().toISOString().slice(0, 16))
+  const [occurredAt, setOccurredAt] = useState(toLocalInputValue())
   const [saving, setSaving] = useState(false)
   const [lastSavedId, setLastSavedId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
-    setOccurredAt(new Date().toISOString().slice(0, 16))
+    setOccurredAt(toLocalInputValue())
     setContent(''); setType('question'); setLastSavedId(null)
   }, [open])
 
