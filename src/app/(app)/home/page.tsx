@@ -1,24 +1,37 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Baby, Droplets, Moon, Activity } from 'lucide-react'
+import { Baby, Droplets, Moon, Activity, Hash, Gauge } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { useBaby } from '@/contexts/BabyContext'
 import { createClient } from '@/lib/supabase/client'
 import StatusCard from '@/components/home/StatusCard'
 import QuickLogButton from '@/components/home/QuickLogButton'
 import BottleTimerCard from '@/components/home/BottleTimerCard'
+import IntakeChart from '@/components/home/IntakeChart'
 import FeedModal from '@/components/log/FeedModal'
 import DiaperModal from '@/components/log/DiaperModal'
 import PumpModal from '@/components/log/PumpModal'
 import SleepModal from '@/components/log/SleepModal'
 import { NoBabyPrompt } from '@/components/home/NoBabyPrompt'
-import type { Database } from '@/lib/database.types'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import type { Database, DailyRollupRow } from '@/lib/database.types'
 
 type Feed = Database['public']['Tables']['feeds']['Row']
 type Diaper = Database['public']['Tables']['diapers']['Row']
-
 type ActiveModal = 'feed' | 'diaper' | 'pump' | 'sleep' | null
+
+/** Returns today's YYYY-MM-DD date in the given IANA timezone. */
+function todayInTz(tz: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date())
+}
+
+/** Returns the YYYY-MM-DD date N days ago in the given IANA timezone. */
+function nDaysAgoInTz(n: number, tz: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(
+    new Date(Date.now() - n * 24 * 60 * 60 * 1000)
+  )
+}
 
 export default function HomePage() {
   const { baby, loading } = useBaby()
@@ -28,42 +41,44 @@ export default function HomePage() {
   const [lastFeed, setLastFeed] = useState<Feed | null>(null)
   const [lastDiaper, setLastDiaper] = useState<Diaper | null>(null)
   const [activeFeeds, setActiveFeeds] = useState<Feed[]>([])
+  const [weekRollup, setWeekRollup] = useState<DailyRollupRow[]>([])
 
-  const fetchRecent = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     if (!baby) return
+    const tz = baby.timezone ?? 'America/New_York'
+    const todayStr = todayInTz(tz)
+    const sevenDaysAgoStr = nDaysAgoInTz(6, tz)
 
-    const { data: feedData } = await supabase
-      .from('feeds')
-      .select('*')
-      .eq('baby_id', baby.id)
-      .order('start_at', { ascending: false })
-      .limit(1)
-      .single()
-
-    const { data: diaperData } = await supabase
-      .from('diapers')
-      .select('*')
-      .eq('baby_id', baby.id)
-      .order('changed_at', { ascending: false })
-      .limit(1)
-      .single()
-
-    const { data: activeFeedsData } = await supabase
-      .from('feeds')
-      .select('*')
-      .eq('baby_id', baby.id)
-      .is('end_at', null)
-      .gte('start_at', new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString())
-      .order('start_at', { ascending: false })
+    const [
+      { data: feedData },
+      { data: diaperData },
+      { data: activeFeedsData },
+      { data: rollupData },
+    ] = await Promise.all([
+      supabase
+        .from('feeds').select('*').eq('baby_id', baby.id)
+        .order('start_at', { ascending: false }).limit(1).single(),
+      supabase
+        .from('diapers').select('*').eq('baby_id', baby.id)
+        .order('changed_at', { ascending: false }).limit(1).single(),
+      supabase
+        .from('feeds').select('*').eq('baby_id', baby.id)
+        .is('end_at', null)
+        .gte('start_at', new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString())
+        .order('start_at', { ascending: false }),
+      supabase
+        .from('daily_rollup').select('*').eq('baby_id', baby.id)
+        .gte('day', sevenDaysAgoStr).lte('day', todayStr)
+        .order('day', { ascending: true }),
+    ])
 
     if (feedData) setLastFeed(feedData)
     if (diaperData) setLastDiaper(diaperData)
-    if (activeFeedsData) setActiveFeeds(activeFeedsData)
+    setActiveFeeds(activeFeedsData ?? [])
+    setWeekRollup(rollupData ?? [])
   }, [baby, supabase])
 
-  useEffect(() => {
-    fetchRecent()
-  }, [fetchRecent])
+  useEffect(() => { fetchAll() }, [fetchAll])
 
   if (loading) {
     return (
@@ -75,19 +90,118 @@ export default function HomePage() {
 
   if (!baby) return <NoBabyPrompt />
 
+  // ── Derived stats ────────────────────────────────────────────────────────
+  const tz = baby.timezone ?? 'America/New_York'
+  const todayStr = todayInTz(tz)
+  const todayRollup = weekRollup.find((r) => r.day === todayStr) ?? null
+
+  const todayTotalMl = todayRollup
+    ? Math.round(todayRollup.formula_ml + todayRollup.breast_milk_ml + todayRollup.colostrum_ml)
+    : 0
+  const todayFeedCount = todayRollup?.feed_count ?? 0
+  const todayAvgMl = todayFeedCount > 0 ? Math.round(todayTotalMl / todayFeedCount) : 0
+
   const ageDays = Math.floor(
     (Date.now() - new Date(baby.birth_date + 'T12:00:00Z').getTime()) / (1000 * 60 * 60 * 24)
   )
 
   return (
-    <div className="flex flex-col gap-4 p-4 pt-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold">{baby.name}</h1>
-        <p className="text-muted-foreground text-sm">Day {ageDays} of life</p>
+    <div className="flex flex-col gap-4 p-4 pt-6 pb-24 max-w-lg mx-auto">
+
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-2xl font-bold tracking-tight">{baby.name}</h1>
+        <span className="text-sm text-muted-foreground font-medium">Day {ageDays}</span>
       </div>
 
-      {/* Active bottle timers */}
+      {/* ── Hero: today's intake ────────────────────────────────────────── */}
+      <Card className="bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800">
+        <CardContent className="p-5">
+          <p className="text-xs font-semibold uppercase tracking-widest text-blue-600 dark:text-blue-400 mb-2">
+            Today&apos;s Intake
+          </p>
+          <div className="flex items-end gap-2 mb-1">
+            <span className="text-5xl font-bold tabular-nums leading-none">
+              {todayTotalMl}
+            </span>
+            <span className="text-xl font-medium text-muted-foreground mb-1">ml</span>
+          </div>
+          {todayFeedCount > 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {todayFeedCount} feed{todayFeedCount !== 1 ? 's' : ''} &middot; avg {todayAvgMl} ml/feed
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">No feeds logged yet today</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Status row ─────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3">
+        <StatusCard
+          icon={<Baby className="h-4 w-4" />}
+          label="Last feed"
+          value={lastFeed
+            ? formatDistanceToNow(new Date(lastFeed.start_at), { addSuffix: true })
+            : '—'}
+        />
+        <StatusCard
+          icon={<Droplets className="h-4 w-4" />}
+          label="Last diaper"
+          value={lastDiaper
+            ? formatDistanceToNow(new Date(lastDiaper.changed_at), { addSuffix: true })
+            : '—'}
+        />
+        <StatusCard
+          icon={<Hash className="h-4 w-4" />}
+          label="Feeds today"
+          value={todayFeedCount > 0 ? String(todayFeedCount) : '—'}
+          size="lg"
+        />
+        <StatusCard
+          icon={<Gauge className="h-4 w-4" />}
+          label="Avg per feed"
+          value={todayAvgMl > 0 ? `${todayAvgMl} ml` : '—'}
+          size="lg"
+        />
+      </div>
+
+      {/* ── 7-day chart ────────────────────────────────────────────────── */}
+      {weekRollup.length > 0 && (
+        <Card>
+          <CardHeader className="pt-4 pb-0 px-4">
+            <CardTitle className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              7-Day Intake
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-2 pt-2 pb-3">
+            <IntakeChart data={weekRollup} />
+            {/* legend */}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 px-2">
+              {weekRollup.some((r) => r.formula_ml > 0) && (
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="inline-block w-2.5 h-2.5 rounded-sm bg-blue-500" />
+                  Formula
+                </span>
+              )}
+              {weekRollup.some((r) => r.breast_milk_ml > 0) && (
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="inline-block w-2.5 h-2.5 rounded-sm bg-pink-500" />
+                  Breast milk
+                </span>
+              )}
+              {weekRollup.some((r) => r.colostrum_ml > 0) && (
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-500" />
+                  Colostrum
+                </span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Active bottle timers ────────────────────────────────────────── */}
       {activeFeeds.length > 0 && (
         <div className="space-y-2">
           {activeFeeds.map((feed) => (
@@ -96,22 +210,8 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Status cards */}
+      {/* ── Quick-log grid ──────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3">
-        <StatusCard
-          icon={<Baby className="h-4 w-4" />}
-          label="Last feed"
-          value={lastFeed ? formatDistanceToNow(new Date(lastFeed.start_at), { addSuffix: true }) : '—'}
-        />
-        <StatusCard
-          icon={<Droplets className="h-4 w-4" />}
-          label="Last diaper"
-          value={lastDiaper ? formatDistanceToNow(new Date(lastDiaper.changed_at), { addSuffix: true }) : '—'}
-        />
-      </div>
-
-      {/* Quick-log buttons */}
-      <div className="grid grid-cols-2 gap-3 mt-2">
         <QuickLogButton
           icon={<Baby className="h-6 w-6" />}
           label="Feed"
@@ -138,30 +238,22 @@ export default function HomePage() {
         />
       </div>
 
-      {/* Logging modals */}
+      {/* ── Modals ─────────────────────────────────────────────────────── */}
       <FeedModal
-        open={activeModal === 'feed'}
-        babyId={baby.id}
-        onClose={() => setActiveModal(null)}
-        onSaved={fetchRecent}
+        open={activeModal === 'feed'} babyId={baby.id}
+        onClose={() => setActiveModal(null)} onSaved={fetchAll}
       />
       <DiaperModal
-        open={activeModal === 'diaper'}
-        babyId={baby.id}
-        onClose={() => setActiveModal(null)}
-        onSaved={fetchRecent}
+        open={activeModal === 'diaper'} babyId={baby.id}
+        onClose={() => setActiveModal(null)} onSaved={fetchAll}
       />
       <PumpModal
-        open={activeModal === 'pump'}
-        babyId={baby.id}
-        onClose={() => setActiveModal(null)}
-        onSaved={fetchRecent}
+        open={activeModal === 'pump'} babyId={baby.id}
+        onClose={() => setActiveModal(null)} onSaved={fetchAll}
       />
       <SleepModal
-        open={activeModal === 'sleep'}
-        babyId={baby.id}
-        onClose={() => setActiveModal(null)}
-        onSaved={fetchRecent}
+        open={activeModal === 'sleep'} babyId={baby.id}
+        onClose={() => setActiveModal(null)} onSaved={fetchAll}
       />
     </div>
   )

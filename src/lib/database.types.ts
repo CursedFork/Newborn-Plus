@@ -33,6 +33,7 @@ export interface BabyRow {
   birth_time: string | null
   sex: BabySex
   birth_weight_oz: number | null
+  timezone: string
   created_at: string
   updated_at: string
 }
@@ -191,6 +192,7 @@ export interface Database {
           birth_time?: string | null
           sex?: BabySex
           birth_weight_oz?: number | null
+          timezone?: string
         }
         Update: {
           id?: string
@@ -199,6 +201,7 @@ export interface Database {
           birth_time?: string | null
           sex?: BabySex
           birth_weight_oz?: number | null
+          timezone?: string
         }
         Relationships: []
       }
