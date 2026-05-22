@@ -33,21 +33,25 @@ export default function NewBabyPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { toast.error('Not signed in'); setSaving(false); return }
 
-    const { data: baby, error: babyError } = await supabase
+    // Generate the ID client-side so we can create the caregiver in the next
+    // step without needing to read the baby row back (which would fail RLS
+    // because no caregiver exists yet).
+    const babyId = crypto.randomUUID()
+
+    const { error: babyError } = await supabase
       .from('babies')
       .insert({
+        id: babyId,
         name: name.trim(),
         birth_date: birthDate,
         sex,
         birth_weight_oz: totalBirthOz > 0 ? totalBirthOz : null,
       })
-      .select('id')
-      .single()
 
     if (babyError) { toast.error(babyError.message); setSaving(false); return }
 
     const { error: cgError } = await supabase.from('caregivers').insert({
-      baby_id: baby.id,
+      baby_id: babyId,
       user_id: user.id,
       role: 'owner',
       display_name: user.email?.split('@')[0] ?? 'Owner',
