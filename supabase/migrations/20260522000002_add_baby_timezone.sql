@@ -5,9 +5,12 @@ alter table babies
   add column if not exists timezone text not null default 'America/New_York';
 
 -- 2. Replace daily_rollup with a timezone-aware version
+-- DROP + CREATE required because CREATE OR REPLACE cannot change the GROUP BY
+-- column list when the view already exists.
 -- All date grouping now uses (timestamptz AT TIME ZONE b.timezone)::date
 -- so feeds logged at 11pm local time appear on the correct calendar day.
-create or replace view daily_rollup as
+drop view if exists daily_rollup;
+create view daily_rollup as
 select
   b.id as baby_id,
   d.day::date as day,
