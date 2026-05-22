@@ -1,0 +1,97 @@
+name: Nightly database backup
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # 04:00 UTC every day
+  workflow_dispatch:        # allow manual run
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client gnupg
+
+      - name: Dump database
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          pg_dump \
+            --host="${{ secrets.SUPABASE_DB_HOST }}" \
+            --port=5432 \
+            --username=postgres \
+            --dbname=postgres \
+            --no-owner \
+            --no-acl \
+            --format=custom \
+            --file=dump.pgdump
+
+      - name: Encrypt dump
+        env:
+          GPG_PASSPHRASE: ${{ secrets.BACKUP_GPG_PASSPHRASE }}
+        run: |
+          echo "$GPG_PASSPHRASE" | gpg \
+            --batch \
+            --yes \
+            --passphrase-fd 0 \
+            --symmetric \
+            --cipher-algo AES256 \
+            --output dump.pgdump.gpg \
+            dump.pgdump
+          rm dump.pgdump
+
+      - name: Compute backup filename
+        id: names
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          DOW=$(date -u +%u)    # 1=Mon … 7=Sun
+          DOM=$(date -u +%d)    # day of month
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+          echo "dow=$DOW" >> $GITHUB_OUTPUT
+          echo "dom=$DOM" >> $GITHUB_OUTPUT
+
+      - name: Store daily backup
+        run: |
+          mkdir -p backups/daily
+          cp dump.pgdump.gpg backups/daily/${{ steps.names.outputs.date }}.pgdump.gpg
+
+      # Keep weekly backup on Sunday (DOW=7)
+      - name: Store weekly backup
+        if: steps.names.outputs.dow == '7'
+        run: |
+          mkdir -p backups/weekly
+          WEEK=$(date -u +%Y-W%V)
+          cp dump.pgdump.gpg backups/weekly/$WEEK.pgdump.gpg
+
+      # Keep monthly backup on the 1st
+      - name: Store monthly backup
+        if: steps.names.outputs.dom == '01'
+        run: |
+          mkdir -p backups/monthly
+          MONTH=$(date -u +%Y-%m)
+          cp dump.pgdump.gpg backups/monthly/$MONTH.pgdump.gpg
+
+      - name: Rotate daily backups (keep 7 days)
+        run: |
+          ls -t backups/daily/*.pgdump.gpg 2>/dev/null | tail -n +8 | xargs -r rm --
+
+      - name: Rotate weekly backups (keep 4 weeks)
+        run: |
+          ls -t backups/weekly/*.pgdump.gpg 2>/dev/null | tail -n +5 | xargs -r rm --
+
+      - name: Commit and push backups
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.email "backup-bot@newborn-plus"
+          git config user.name "Backup Bot"
+          git add backups/
+          git diff --cached --quiet || git commit -m "chore: nightly backup ${{ steps.names.outputs.date }}"
+          git push
