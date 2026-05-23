@@ -7,14 +7,42 @@ import { formatLocalDateTime } from '@/lib/export-utils'
 import { formatOz } from '@/lib/who/percentiles'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { MoreVertical, Pencil, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
+import FeedModal from '@/components/log/FeedModal'
+import DiaperModal from '@/components/log/DiaperModal'
+import SleepModal from '@/components/log/SleepModal'
+import PumpModal from '@/components/log/PumpModal'
+import WeightModal from '@/components/log/WeightModal'
+import PedNoteModal from '@/components/log/PedNoteModal'
 import type { FeedRow, DiaperRow, PumpRow, SleepRow, WeightRow, PedNoteRow } from '@/lib/database.types'
+
+type AnyRow = FeedRow | DiaperRow | PumpRow | SleepRow | WeightRow | PedNoteRow
+type EventType = 'feed' | 'diaper' | 'pump' | 'sleep' | 'weight' | 'ped_note'
+
+const TABLE_FOR_TYPE: Record<EventType, string> = {
+  feed: 'feeds',
+  diaper: 'diapers',
+  pump: 'pumps',
+  sleep: 'sleeps',
+  weight: 'weights',
+  ped_note: 'pediatrician_notes',
+}
 
 interface HistoryItem {
   at: string
-  type: 'feed' | 'diaper' | 'pump' | 'sleep' | 'weight' | 'ped_note'
+  id: string
+  type: EventType
+  rawRow: AnyRow
   summary: string
-  badge?: string
-  badgeVariant?: 'default' | 'secondary' | 'outline' | 'destructive'
+  badge: string
+  badgeVariant: 'default' | 'secondary' | 'outline' | 'destructive'
 }
 
 function feedSummary(f: FeedRow): HistoryItem {
@@ -23,7 +51,7 @@ function feedSummary(f: FeedRow): HistoryItem {
   if (f.formula_brand) parts.push(`(${f.formula_brand})`)
   if (f.spit_up) parts.push('· spit-up')
   if (f.volume_offered_ml && f.volume_ml < f.volume_offered_ml * 0.5) parts.push('· refused')
-  return { at: f.start_at, type: 'feed', summary: parts.join(' '), badge: 'Feed', badgeVariant: 'default' }
+  return { at: f.start_at, id: f.id, type: 'feed', rawRow: f, summary: parts.join(' '), badge: 'Feed', badgeVariant: 'default' }
 }
 
 function diaperSummary(d: DiaperRow): HistoryItem {
@@ -32,30 +60,30 @@ function diaperSummary(d: DiaperRow): HistoryItem {
   if (d.poop_color) parts.push(`· ${d.poop_color.replace('_', ' ')}`)
   if (d.rash_status && d.rash_status !== 'none') parts.push(`· rash: ${d.rash_status}`)
   if (d.cream_applied && d.cream_applied !== 'none') parts.push(`· ${d.cream_applied.replace('_', ' ')}`)
-  return { at: d.changed_at, type: 'diaper', summary: parts.join(' '), badge: 'Diaper', badgeVariant: 'secondary' }
+  return { at: d.changed_at, id: d.id, type: 'diaper', rawRow: d, summary: parts.join(' '), badge: 'Diaper', badgeVariant: 'secondary' }
 }
 
 function pumpSummary(p: PumpRow): HistoryItem {
   const parts = [`${p.volume_ml} ml ${p.output_type.replace('_', ' ')}`]
   if (p.side) parts.push(`· ${p.side}`)
   if (p.duration_min) parts.push(`· ${p.duration_min} min`)
-  return { at: p.start_at, type: 'pump', summary: parts.join(' '), badge: 'Pump', badgeVariant: 'outline' }
+  return { at: p.start_at, id: p.id, type: 'pump', rawRow: p, summary: parts.join(' '), badge: 'Pump', badgeVariant: 'outline' }
 }
 
 function sleepSummary(s: SleepRow): HistoryItem {
   const dur = s.end_at
     ? `${((new Date(s.end_at).getTime() - new Date(s.start_at).getTime()) / (1000 * 60 * 60)).toFixed(1)} h`
     : 'ongoing'
-  return { at: s.start_at, type: 'sleep', summary: `${dur} · ${s.location.replace('_', ' ')}`, badge: 'Sleep', badgeVariant: 'outline' }
+  return { at: s.start_at, id: s.id, type: 'sleep', rawRow: s, summary: `${dur} · ${s.location.replace(/_/g, ' ')}`, badge: 'Sleep', badgeVariant: 'outline' }
 }
 
 function weightSummary(w: WeightRow): HistoryItem {
-  return { at: w.measured_at, type: 'weight', summary: formatOz(w.weight_oz), badge: 'Weight', badgeVariant: 'secondary' }
+  return { at: w.measured_at, id: w.id, type: 'weight', rawRow: w, summary: formatOz(w.weight_oz), badge: 'Weight', badgeVariant: 'secondary' }
 }
 
 function pedNoteSummary(n: PedNoteRow): HistoryItem {
   const label = n.type === 'question' ? 'Question' : n.type === 'instruction_received' ? 'Instruction' : 'Observation'
-  return { at: n.occurred_at, type: 'ped_note', summary: n.content, badge: label, badgeVariant: 'outline' }
+  return { at: n.occurred_at, id: n.id, type: 'ped_note', rawRow: n, summary: n.content, badge: label, badgeVariant: 'outline' }
 }
 
 export default function HistoryPage() {
@@ -63,26 +91,29 @@ export default function HistoryPage() {
   const { baby, loading: babyLoading } = useBaby()
   const [items, setItems] = useState<HistoryItem[]>([])
   const [fetching, setFetching] = useState(false)
+  const [editTarget, setEditTarget] = useState<HistoryItem | null>(null)
   const [limit] = useState(100)
 
   const fetchData = useCallback(async () => {
     if (!baby) return
     setFetching(true)
 
-    const { data: fData } = await supabase.from('feeds').select('*').eq('baby_id', baby.id).order('start_at', { ascending: false }).limit(limit)
-    const { data: dData } = await supabase.from('diapers').select('*').eq('baby_id', baby.id).order('changed_at', { ascending: false }).limit(limit)
-    const { data: pData } = await supabase.from('pumps').select('*').eq('baby_id', baby.id).order('start_at', { ascending: false }).limit(limit)
-    const { data: sData } = await supabase.from('sleeps').select('*').eq('baby_id', baby.id).order('start_at', { ascending: false }).limit(limit)
-    const { data: wData } = await supabase.from('weights').select('*').eq('baby_id', baby.id).order('measured_at', { ascending: false }).limit(limit)
-    const { data: nData } = await supabase.from('pediatrician_notes').select('*').eq('baby_id', baby.id).order('occurred_at', { ascending: false }).limit(limit)
+    const [fRes, dRes, pRes, sRes, wRes, nRes] = await Promise.all([
+      supabase.from('feeds').select('*').eq('baby_id', baby.id).order('start_at', { ascending: false }).limit(limit),
+      supabase.from('diapers').select('*').eq('baby_id', baby.id).order('changed_at', { ascending: false }).limit(limit),
+      supabase.from('pumps').select('*').eq('baby_id', baby.id).order('start_at', { ascending: false }).limit(limit),
+      supabase.from('sleeps').select('*').eq('baby_id', baby.id).order('start_at', { ascending: false }).limit(limit),
+      supabase.from('weights').select('*').eq('baby_id', baby.id).order('measured_at', { ascending: false }).limit(limit),
+      supabase.from('pediatrician_notes').select('*').eq('baby_id', baby.id).order('occurred_at', { ascending: false }).limit(limit),
+    ])
 
     const all: HistoryItem[] = [
-      ...((fData as FeedRow[]) ?? []).map(feedSummary),
-      ...((dData as DiaperRow[]) ?? []).map(diaperSummary),
-      ...((pData as PumpRow[]) ?? []).map(pumpSummary),
-      ...((sData as SleepRow[]) ?? []).map(sleepSummary),
-      ...((wData as WeightRow[]) ?? []).map(weightSummary),
-      ...((nData as PedNoteRow[]) ?? []).map(pedNoteSummary),
+      ...((fRes.data as FeedRow[]) ?? []).map(feedSummary),
+      ...((dRes.data as DiaperRow[]) ?? []).map(diaperSummary),
+      ...((pRes.data as PumpRow[]) ?? []).map(pumpSummary),
+      ...((sRes.data as SleepRow[]) ?? []).map(sleepSummary),
+      ...((wRes.data as WeightRow[]) ?? []).map(weightSummary),
+      ...((nRes.data as PedNoteRow[]) ?? []).map(pedNoteSummary),
     ]
 
     all.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
@@ -93,6 +124,26 @@ export default function HistoryPage() {
   useEffect(() => {
     if (!babyLoading && baby) fetchData()
   }, [babyLoading, baby, fetchData])
+
+  function handleEdit(item: HistoryItem) {
+    setEditTarget(item)
+  }
+
+  function handleDelete(item: HistoryItem) {
+    const table = TABLE_FOR_TYPE[item.type]
+    toast(`Delete this ${item.badge.toLowerCase()}?`, {
+      action: {
+        label: 'Yes, delete',
+        onClick: async () => {
+          const { error } = await supabase.from(table as never).delete().eq('id', item.id)
+          if (error) { toast.error(error.message); return }
+          setItems((prev) => prev.filter((i) => !(i.id === item.id && i.type === item.type)))
+          toast.success(`${item.badge} deleted`)
+        },
+      },
+      cancel: { label: 'Cancel', onClick: () => {} },
+    })
+  }
 
   if (babyLoading) {
     return (
@@ -116,15 +167,34 @@ export default function HistoryPage() {
         <p className="text-muted-foreground text-sm">No events logged yet.</p>
       ) : (
         <div className="space-y-2">
-          {items.map((item, i) => (
-            <div key={i} className="flex items-start gap-3 p-3 rounded-lg border border-border bg-card">
-              <Badge variant={item.badgeVariant ?? 'default'} className="shrink-0 mt-0.5 text-xs">
+          {items.map((item) => (
+            <div
+              key={`${item.type}-${item.id}`}
+              className="flex items-start gap-3 p-3 rounded-lg border border-border bg-card"
+            >
+              <Badge variant={item.badgeVariant} className="shrink-0 mt-0.5 text-xs">
                 {item.badge}
               </Badge>
               <div className="flex-1 min-w-0">
                 <p className="text-sm leading-snug">{item.summary}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{formatLocalDateTime(item.at)}</p>
               </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground">
+                  <MoreVertical className="h-4 w-4" />
+                  <span className="sr-only">Options</span>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleEdit(item)}>
+                    <Pencil className="h-4 w-4 mr-2" />
+                    Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" onClick={() => handleDelete(item)}>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           ))}
           <p className="text-xs text-muted-foreground pt-2 text-center">
@@ -132,6 +202,50 @@ export default function HistoryPage() {
           </p>
         </div>
       )}
+
+      {/* Edit modals — rendered with open controlled; Sheet portals are lazy */}
+      <FeedModal
+        open={editTarget?.type === 'feed'}
+        babyId={baby.id}
+        initialData={editTarget?.type === 'feed' ? (editTarget.rawRow as FeedRow) : undefined}
+        onClose={() => setEditTarget(null)}
+        onSaved={() => { setEditTarget(null); fetchData() }}
+      />
+      <DiaperModal
+        open={editTarget?.type === 'diaper'}
+        babyId={baby.id}
+        initialData={editTarget?.type === 'diaper' ? (editTarget.rawRow as DiaperRow) : undefined}
+        onClose={() => setEditTarget(null)}
+        onSaved={() => { setEditTarget(null); fetchData() }}
+      />
+      <SleepModal
+        open={editTarget?.type === 'sleep'}
+        babyId={baby.id}
+        initialData={editTarget?.type === 'sleep' ? (editTarget.rawRow as SleepRow) : undefined}
+        onClose={() => setEditTarget(null)}
+        onSaved={() => { setEditTarget(null); fetchData() }}
+      />
+      <PumpModal
+        open={editTarget?.type === 'pump'}
+        babyId={baby.id}
+        initialData={editTarget?.type === 'pump' ? (editTarget.rawRow as PumpRow) : undefined}
+        onClose={() => setEditTarget(null)}
+        onSaved={() => { setEditTarget(null); fetchData() }}
+      />
+      <WeightModal
+        open={editTarget?.type === 'weight'}
+        babyId={baby.id}
+        initialData={editTarget?.type === 'weight' ? (editTarget.rawRow as WeightRow) : undefined}
+        onClose={() => setEditTarget(null)}
+        onSaved={() => { setEditTarget(null); fetchData() }}
+      />
+      <PedNoteModal
+        open={editTarget?.type === 'ped_note'}
+        babyId={baby.id}
+        initialData={editTarget?.type === 'ped_note' ? (editTarget.rawRow as PedNoteRow) : undefined}
+        onClose={() => setEditTarget(null)}
+        onSaved={() => { setEditTarget(null); fetchData() }}
+      />
     </div>
   )
 }

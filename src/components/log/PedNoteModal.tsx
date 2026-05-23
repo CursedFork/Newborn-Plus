@@ -11,17 +11,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { toLocalInputValue } from '@/lib/time'
-import type { PedNoteType } from '@/lib/database.types'
+import type { PedNoteType, PedNoteRow } from '@/lib/database.types'
 
 interface Props {
   open: boolean
   babyId: string
   onClose: () => void
   onSaved: () => void
+  initialData?: PedNoteRow
 }
 
-export default function PedNoteModal({ open, babyId, onClose, onSaved }: Props) {
+export default function PedNoteModal({ open, babyId, onClose, onSaved, initialData }: Props) {
   const supabase = createClient()
+  const isEditing = !!initialData
 
   const [type, setType] = useState<PedNoteType>('question')
   const [content, setContent] = useState('')
@@ -31,24 +33,55 @@ export default function PedNoteModal({ open, babyId, onClose, onSaved }: Props) 
 
   useEffect(() => {
     if (!open) return
-    setOccurredAt(toLocalInputValue())
-    setContent(''); setType('question'); setLastSavedId(null)
-  }, [open])
+    setLastSavedId(null)
+
+    if (initialData) {
+      setType(initialData.type)
+      setContent(initialData.content)
+      setOccurredAt(toLocalInputValue(new Date(initialData.occurred_at)))
+    } else {
+      setOccurredAt(toLocalInputValue())
+      setContent(''); setType('question')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialData?.id])
 
   async function save() {
     if (!content.trim()) { toast.error('Enter a note'); return }
     setSaving(true)
-    const { data, error } = await supabase.from('pediatrician_notes').insert({
-      baby_id: babyId,
-      type,
-      status: type === 'instruction_received' ? 'resolved' : 'open',
-      content: content.trim(),
-      occurred_at: new Date(occurredAt).toISOString(),
-    }).select('id').single()
+    if (isEditing) {
+      const { error } = await supabase.from('pediatrician_notes').update({
+        type,
+        content: content.trim(),
+        occurred_at: new Date(occurredAt).toISOString(),
+      }).eq('id', initialData!.id)
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      toast.success('Note updated')
+      onSaved(); onClose()
+    } else {
+      const { data, error } = await supabase.from('pediatrician_notes').insert({
+        baby_id: babyId,
+        type,
+        status: type === 'instruction_received' ? 'resolved' : 'open',
+        content: content.trim(),
+        occurred_at: new Date(occurredAt).toISOString(),
+      }).select('id').single()
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      setLastSavedId(data.id)
+      toast.success('Note logged')
+      onSaved(); onClose()
+    }
+  }
+
+  async function handleDelete() {
+    if (!initialData) return
+    setSaving(true)
+    const { error } = await supabase.from('pediatrician_notes').delete().eq('id', initialData.id)
     setSaving(false)
     if (error) { toast.error(error.message); return }
-    setLastSavedId(data.id)
-    toast.success('Note logged')
+    toast.success('Note deleted')
     onSaved(); onClose()
   }
 
@@ -63,8 +96,8 @@ export default function PedNoteModal({ open, babyId, onClose, onSaved }: Props) 
       <SheetContent side="bottom" className="max-h-[90dvh] overflow-y-auto rounded-t-2xl">
         <SheetHeader>
           <SheetTitle className="flex items-center justify-between">
-            Pediatrician Note
-            {lastSavedId && (
+            {isEditing ? 'Edit Note' : 'Pediatrician Note'}
+            {!isEditing && lastSavedId && (
               <Button variant="ghost" size="sm" onClick={undo}>
                 <Undo2 className="h-4 w-4 mr-1" /> Undo
               </Button>
@@ -113,8 +146,14 @@ export default function PedNoteModal({ open, babyId, onClose, onSaved }: Props) 
           </p>
 
           <Button className="w-full h-14 text-base" onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : 'Save note'}
+            {saving ? 'Saving…' : isEditing ? 'Save changes' : 'Save note'}
           </Button>
+
+          {isEditing && (
+            <Button variant="destructive" className="w-full" onClick={handleDelete} disabled={saving}>
+              Delete this note
+            </Button>
+          )}
         </div>
       </SheetContent>
     </Sheet>

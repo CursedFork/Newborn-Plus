@@ -11,16 +11,19 @@ import { Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { toLocalInputValue } from '@/lib/time'
 import { formatOz } from '@/lib/who/percentiles'
+import type { WeightRow } from '@/lib/database.types'
 
 interface Props {
   open: boolean
   babyId: string
   onClose: () => void
   onSaved: () => void
+  initialData?: WeightRow
 }
 
-export default function WeightModal({ open, babyId, onClose, onSaved }: Props) {
+export default function WeightModal({ open, babyId, onClose, onSaved, initialData }: Props) {
   const supabase = createClient()
+  const isEditing = !!initialData
 
   const [pounds, setPounds] = useState('')
   const [ounces, setOunces] = useState('')
@@ -32,28 +35,61 @@ export default function WeightModal({ open, babyId, onClose, onSaved }: Props) {
 
   useEffect(() => {
     if (!open) return
-    setMeasuredAt(toLocalInputValue())
-    setPounds(''); setOunces(''); setLocation(''); setNotes('')
     setLastSavedId(null)
-  }, [open])
+
+    if (initialData) {
+      // Split total oz into lbs + oz
+      const totalOz = initialData.weight_oz
+      const lbs = Math.floor(totalOz / 16)
+      const oz = +(totalOz % 16).toFixed(1)
+      setPounds(lbs > 0 ? String(lbs) : '')
+      setOunces(String(oz))
+      setLocation(initialData.location ?? '')
+      setNotes(initialData.notes ?? '')
+      setMeasuredAt(toLocalInputValue(new Date(initialData.measured_at)))
+    } else {
+      setMeasuredAt(toLocalInputValue())
+      setPounds(''); setOunces(''); setLocation(''); setNotes('')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialData?.id])
 
   const totalOz = (parseFloat(pounds || '0') * 16) + parseFloat(ounces || '0')
   const valid = totalOz > 0
 
+  const payload = {
+    weight_oz: totalOz,
+    location: location || null,
+    notes: notes || null,
+    measured_at: new Date(measuredAt).toISOString(),
+  }
+
   async function save() {
     if (!valid) { toast.error('Enter a weight'); return }
     setSaving(true)
-    const { data, error } = await supabase.from('weights').insert({
-      baby_id: babyId,
-      weight_oz: totalOz,
-      location: location || null,
-      notes: notes || null,
-      measured_at: new Date(measuredAt).toISOString(),
-    }).select('id').single()
+    if (isEditing) {
+      const { error } = await supabase.from('weights').update(payload).eq('id', initialData!.id)
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      toast.success('Weight updated')
+      onSaved(); onClose()
+    } else {
+      const { data, error } = await supabase.from('weights').insert({ baby_id: babyId, ...payload }).select('id').single()
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      setLastSavedId(data.id)
+      toast.success(`Weight logged: ${formatOz(totalOz)}`)
+      onSaved(); onClose()
+    }
+  }
+
+  async function handleDelete() {
+    if (!initialData) return
+    setSaving(true)
+    const { error } = await supabase.from('weights').delete().eq('id', initialData.id)
     setSaving(false)
     if (error) { toast.error(error.message); return }
-    setLastSavedId(data.id)
-    toast.success(`Weight logged: ${formatOz(totalOz)}`)
+    toast.success('Weight deleted')
     onSaved(); onClose()
   }
 
@@ -68,8 +104,8 @@ export default function WeightModal({ open, babyId, onClose, onSaved }: Props) {
       <SheetContent side="bottom" className="max-h-[90dvh] overflow-y-auto rounded-t-2xl">
         <SheetHeader>
           <SheetTitle className="flex items-center justify-between">
-            Log Weight
-            {lastSavedId && (
+            {isEditing ? 'Edit Weight' : 'Log Weight'}
+            {!isEditing && lastSavedId && (
               <Button variant="ghost" size="sm" onClick={undo}>
                 <Undo2 className="h-4 w-4 mr-1" /> Undo
               </Button>
@@ -125,8 +161,14 @@ export default function WeightModal({ open, babyId, onClose, onSaved }: Props) {
           </div>
 
           <Button className="w-full h-14 text-base" onClick={save} disabled={saving || !valid}>
-            {saving ? 'Saving…' : 'Log weight'}
+            {saving ? 'Saving…' : isEditing ? 'Save changes' : 'Log weight'}
           </Button>
+
+          {isEditing && (
+            <Button variant="destructive" className="w-full" onClick={handleDelete} disabled={saving}>
+              Delete this weight
+            </Button>
+          )}
         </div>
       </SheetContent>
     </Sheet>

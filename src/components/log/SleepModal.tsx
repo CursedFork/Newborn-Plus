@@ -11,17 +11,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Mic, MicOff, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { toLocalInputValue } from '@/lib/time'
-import type { SleepLocation, SleepWakeReason } from '@/lib/database.types'
+import type { SleepLocation, SleepWakeReason, SleepRow } from '@/lib/database.types'
 
 interface Props {
   open: boolean
   babyId: string
   onClose: () => void
   onSaved: () => void
+  initialData?: SleepRow
 }
 
-export default function SleepModal({ open, babyId, onClose, onSaved }: Props) {
+export default function SleepModal({ open, babyId, onClose, onSaved, initialData }: Props) {
   const supabase = createClient()
+  const isEditing = !!initialData
 
   const [location, setLocation] = useState<SleepLocation>('bassinet')
   const [startAt, setStartAt] = useState(toLocalInputValue())
@@ -38,18 +40,30 @@ export default function SleepModal({ open, babyId, onClose, onSaved }: Props) {
 
   useEffect(() => {
     if (!open) return
-    supabase
-      .from('sleeps')
-      .select('location')
-      .eq('baby_id', babyId)
-      .order('start_at', { ascending: false })
-      .limit(1)
-      .single()
-      .then(({ data }) => { if (data) setLocation(data.location as SleepLocation) })
-    setStartAt(toLocalInputValue())
-    setEndAt(''); setWokenBy(''); setNotes('')
-    setVoiceUrl(null); setLastSavedId(null)
-  }, [open, babyId, supabase])
+    setLastSavedId(null)
+
+    if (initialData) {
+      setLocation(initialData.location)
+      setStartAt(toLocalInputValue(new Date(initialData.start_at)))
+      setEndAt(initialData.end_at ? toLocalInputValue(new Date(initialData.end_at)) : '')
+      setWokenBy(initialData.woken_by ?? '')
+      setNotes(initialData.notes ?? '')
+      setVoiceUrl(initialData.voice_note_url)
+    } else {
+      supabase
+        .from('sleeps')
+        .select('location')
+        .eq('baby_id', babyId)
+        .order('start_at', { ascending: false })
+        .limit(1)
+        .single()
+        .then(({ data }) => { if (data) setLocation(data.location as SleepLocation) })
+      setStartAt(toLocalInputValue())
+      setEndAt(''); setWokenBy(''); setNotes('')
+      setVoiceUrl(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, babyId, initialData?.id])
 
   async function toggleRecording() {
     if (recording) { recorderRef.current?.stop(); setRecording(false); return }
@@ -71,20 +85,40 @@ export default function SleepModal({ open, babyId, onClose, onSaved }: Props) {
     } catch { toast.error('Microphone access denied') }
   }
 
+  const payload = {
+    location,
+    start_at: new Date(startAt).toISOString(),
+    end_at: endAt ? new Date(endAt).toISOString() : null,
+    woken_by: wokenBy || null,
+    notes: notes || null,
+    voice_note_url: voiceUrl,
+  }
+
   async function save() {
     setSaving(true)
-    const { data, error } = await supabase.from('sleeps').insert({
-      baby_id: babyId,
-      location,
-      start_at: new Date(startAt).toISOString(),
-      end_at: endAt ? new Date(endAt).toISOString() : null,
-      woken_by: wokenBy || null,
-      notes: notes || null,
-      voice_note_url: voiceUrl,
-    }).select('id').single()
+    if (isEditing) {
+      const { error } = await supabase.from('sleeps').update(payload).eq('id', initialData!.id)
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      toast.success('Sleep updated')
+      onSaved(); onClose()
+    } else {
+      const { data, error } = await supabase.from('sleeps').insert({ baby_id: babyId, ...payload }).select('id').single()
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      setLastSavedId(data.id)
+      toast.success('Sleep logged')
+      onSaved(); onClose()
+    }
+  }
+
+  async function handleDelete() {
+    if (!initialData) return
+    setSaving(true)
+    const { error } = await supabase.from('sleeps').delete().eq('id', initialData.id)
     setSaving(false)
     if (error) { toast.error(error.message); return }
-    setLastSavedId(data.id); toast.success('Sleep logged')
+    toast.success('Sleep deleted')
     onSaved(); onClose()
   }
 
@@ -99,8 +133,8 @@ export default function SleepModal({ open, babyId, onClose, onSaved }: Props) {
       <SheetContent side="bottom" className="max-h-[90dvh] overflow-y-auto rounded-t-2xl">
         <SheetHeader>
           <SheetTitle className="flex items-center justify-between">
-            Log Sleep
-            {lastSavedId && (
+            {isEditing ? 'Edit Sleep' : 'Log Sleep'}
+            {!isEditing && lastSavedId && (
               <Button variant="ghost" size="sm" onClick={undo}>
                 <Undo2 className="h-4 w-4 mr-1" /> Undo
               </Button>
@@ -159,8 +193,14 @@ export default function SleepModal({ open, babyId, onClose, onSaved }: Props) {
           </div>
 
           <Button className="w-full h-14 text-base" onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : 'Log sleep'}
+            {saving ? 'Saving…' : isEditing ? 'Save changes' : 'Log sleep'}
           </Button>
+
+          {isEditing && (
+            <Button variant="destructive" className="w-full" onClick={handleDelete} disabled={saving}>
+              Delete this sleep
+            </Button>
+          )}
         </div>
       </SheetContent>
     </Sheet>

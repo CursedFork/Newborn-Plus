@@ -13,19 +13,21 @@ import { Slider } from '@/components/ui/slider'
 import { Mic, MicOff, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { toLocalInputValue } from '@/lib/time'
-import type { FeedType } from '@/lib/database.types'
+import type { FeedType, FeedRow } from '@/lib/database.types'
 
 interface Props {
   open: boolean
   babyId: string
   onClose: () => void
   onSaved: () => void
+  initialData?: FeedRow
 }
 
 const FORMULA_BRANDS = ['Similac 360', 'Enfamil', 'Bobbie', 'Other']
 
-export default function FeedModal({ open, babyId, onClose, onSaved }: Props) {
+export default function FeedModal({ open, babyId, onClose, onSaved, initialData }: Props) {
   const supabase = createClient()
+  const isEditing = !!initialData
 
   const [type, setType] = useState<FeedType>('formula')
   const [formulaBrand, setFormulaBrand] = useState('Similac 360')
@@ -45,32 +47,48 @@ export default function FeedModal({ open, babyId, onClose, onSaved }: Props) {
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
 
-  // Pre-fill from last feed
   useEffect(() => {
     if (!open) return
-    supabase
-      .from('feeds')
-      .select('type, formula_brand, volume_ml, bottle_type')
-      .eq('baby_id', babyId)
-      .order('start_at', { ascending: false })
-      .limit(1)
-      .single()
-      .then(({ data }) => {
-        if (data) {
-          setType(data.type as FeedType)
-          if (data.formula_brand) setFormulaBrand(data.formula_brand)
-          setVolumeMl(data.volume_ml)
-          if (data.bottle_type) setBottleType(data.bottle_type)
-        }
-      })
-    setStartAt(toLocalInputValue())
-    setSpitUp(false)
-    setSpitUpNotes('')
-    setFussinessNotes('')
-    setVolumeOfferedMl(undefined)
-    setVoiceUrl(null)
     setLastSavedId(null)
-  }, [open, babyId, supabase])
+
+    if (initialData) {
+      // Edit mode — pre-fill from the existing record
+      setType(initialData.type)
+      setFormulaBrand(initialData.formula_brand ?? 'Similac 360')
+      setVolumeMl(initialData.volume_ml)
+      setVolumeOfferedMl(initialData.volume_offered_ml ?? undefined)
+      setBottleType(initialData.bottle_type ?? '')
+      setSpitUp(initialData.spit_up)
+      setSpitUpNotes(initialData.spit_up_notes ?? '')
+      setFussinessNotes(initialData.fussiness_notes ?? '')
+      setStartAt(toLocalInputValue(new Date(initialData.start_at)))
+      setVoiceUrl(initialData.voice_note_url)
+    } else {
+      // New mode — pre-fill type/brand from last feed, reset everything else
+      supabase
+        .from('feeds')
+        .select('type, formula_brand, volume_ml, bottle_type')
+        .eq('baby_id', babyId)
+        .order('start_at', { ascending: false })
+        .limit(1)
+        .single()
+        .then(({ data }) => {
+          if (data) {
+            setType(data.type as FeedType)
+            if (data.formula_brand) setFormulaBrand(data.formula_brand)
+            setVolumeMl(data.volume_ml)
+            if (data.bottle_type) setBottleType(data.bottle_type)
+          }
+        })
+      setStartAt(toLocalInputValue())
+      setSpitUp(false)
+      setSpitUpNotes('')
+      setFussinessNotes('')
+      setVolumeOfferedMl(undefined)
+      setVoiceUrl(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, babyId, initialData?.id])
 
   async function toggleRecording() {
     if (recording) {
@@ -103,26 +121,46 @@ export default function FeedModal({ open, babyId, onClose, onSaved }: Props) {
     }
   }
 
+  const payload = {
+    type,
+    formula_brand: type === 'formula' ? formulaBrand : null,
+    volume_ml: volumeMl,
+    volume_offered_ml: volumeOfferedMl ?? null,
+    bottle_type: bottleType || null,
+    spit_up: spitUp,
+    spit_up_notes: spitUp ? spitUpNotes || null : null,
+    fussiness_notes: fusinessNotes || null,
+    start_at: new Date(startAt).toISOString(),
+    voice_note_url: voiceUrl,
+  }
+
   async function save() {
     setSaving(true)
-    const { data, error } = await supabase.from('feeds').insert({
-      baby_id: babyId,
-      type,
-      formula_brand: type === 'formula' ? formulaBrand : null,
-      volume_ml: volumeMl,
-      volume_offered_ml: volumeOfferedMl ?? null,
-      bottle_type: bottleType || null,
-      spit_up: spitUp,
-      spit_up_notes: spitUp ? spitUpNotes || null : null,
-      fussiness_notes: fusinessNotes || null,
-      start_at: new Date(startAt).toISOString(),
-      voice_note_url: voiceUrl,
-    }).select('id').single()
+    if (isEditing) {
+      const { error } = await supabase.from('feeds').update(payload).eq('id', initialData!.id)
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      toast.success('Feed updated')
+      onSaved()
+      onClose()
+    } else {
+      const { data, error } = await supabase.from('feeds').insert({ baby_id: babyId, ...payload }).select('id').single()
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      setLastSavedId(data.id)
+      toast.success('Feed logged')
+      onSaved()
+      onClose()
+    }
+  }
 
+  async function handleDelete() {
+    if (!initialData) return
+    setSaving(true)
+    const { error } = await supabase.from('feeds').delete().eq('id', initialData.id)
     setSaving(false)
     if (error) { toast.error(error.message); return }
-    setLastSavedId(data.id)
-    toast.success('Feed logged')
+    toast.success('Feed deleted')
     onSaved()
     onClose()
   }
@@ -140,8 +178,8 @@ export default function FeedModal({ open, babyId, onClose, onSaved }: Props) {
       <SheetContent side="bottom" className="max-h-[90dvh] overflow-y-auto rounded-t-2xl">
         <SheetHeader>
           <SheetTitle className="flex items-center justify-between">
-            Log Feed
-            {lastSavedId && (
+            {isEditing ? 'Edit Feed' : 'Log Feed'}
+            {!isEditing && lastSavedId && (
               <Button variant="ghost" size="sm" onClick={undo}>
                 <Undo2 className="h-4 w-4 mr-1" /> Undo
               </Button>
@@ -263,8 +301,20 @@ export default function FeedModal({ open, babyId, onClose, onSaved }: Props) {
 
           {/* Save */}
           <Button className="w-full h-14 text-base" onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : 'Log feed'}
+            {saving ? 'Saving…' : isEditing ? 'Save changes' : 'Log feed'}
           </Button>
+
+          {/* Delete (edit mode only) */}
+          {isEditing && (
+            <Button
+              variant="destructive"
+              className="w-full"
+              onClick={handleDelete}
+              disabled={saving}
+            >
+              Delete this feed
+            </Button>
+          )}
         </div>
       </SheetContent>
     </Sheet>

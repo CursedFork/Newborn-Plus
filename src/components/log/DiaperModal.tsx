@@ -12,17 +12,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Mic, MicOff, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { toLocalInputValue } from '@/lib/time'
-import type { CreamType, RashStatus, PoopColor, PoopConsistency } from '@/lib/database.types'
+import type { CreamType, RashStatus, PoopColor, PoopConsistency, DiaperRow } from '@/lib/database.types'
 
 interface Props {
   open: boolean
   babyId: string
   onClose: () => void
   onSaved: () => void
+  initialData?: DiaperRow
 }
 
-export default function DiaperModal({ open, babyId, onClose, onSaved }: Props) {
+export default function DiaperModal({ open, babyId, onClose, onSaved, initialData }: Props) {
   const supabase = createClient()
+  const isEditing = !!initialData
 
   const [pee, setPee] = useState(true)
   const [poop, setPoop] = useState(false)
@@ -43,11 +45,27 @@ export default function DiaperModal({ open, babyId, onClose, onSaved }: Props) {
 
   useEffect(() => {
     if (!open) return
-    setChangedAt(toLocalInputValue())
-    setPee(true); setPoop(false); setPoopColor(''); setPoopConsistency('')
-    setVolumeNotes(''); setCreamApplied('none'); setRashStatus(''); setNotes('')
-    setVoiceUrl(null); setLastSavedId(null)
-  }, [open])
+    setLastSavedId(null)
+
+    if (initialData) {
+      setPee(initialData.pee)
+      setPoop(initialData.poop)
+      setPoopColor(initialData.poop_color ?? '')
+      setPoopConsistency(initialData.poop_consistency ?? '')
+      setVolumeNotes(initialData.volume_notes ?? '')
+      setCreamApplied(initialData.cream_applied)
+      setRashStatus(initialData.rash_status ?? '')
+      setNotes(initialData.notes ?? '')
+      setChangedAt(toLocalInputValue(new Date(initialData.changed_at)))
+      setVoiceUrl(initialData.voice_note_url)
+    } else {
+      setChangedAt(toLocalInputValue())
+      setPee(true); setPoop(false); setPoopColor(''); setPoopConsistency('')
+      setVolumeNotes(''); setCreamApplied('none'); setRashStatus(''); setNotes('')
+      setVoiceUrl(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialData?.id])
 
   async function toggleRecording() {
     if (recording) { recorderRef.current?.stop(); setRecording(false); return }
@@ -70,26 +88,45 @@ export default function DiaperModal({ open, babyId, onClose, onSaved }: Props) {
     } catch { toast.error('Microphone access denied') }
   }
 
+  const payload = {
+    pee,
+    poop,
+    poop_color: poop && poopColor ? poopColor : null,
+    poop_consistency: poop && poopConsistency ? poopConsistency : null,
+    volume_notes: volumeNotes || null,
+    cream_applied: creamApplied,
+    rash_status: rashStatus || null,
+    notes: notes || null,
+    changed_at: new Date(changedAt).toISOString(),
+    voice_note_url: voiceUrl,
+  }
+
   async function save() {
     if (!pee && !poop) { toast.error('Select at least pee or poop'); return }
     setSaving(true)
-    const { data, error } = await supabase.from('diapers').insert({
-      baby_id: babyId,
-      pee,
-      poop,
-      poop_color: poop && poopColor ? poopColor : null,
-      poop_consistency: poop && poopConsistency ? poopConsistency : null,
-      volume_notes: volumeNotes || null,
-      cream_applied: creamApplied,
-      rash_status: rashStatus || null,
-      notes: notes || null,
-      changed_at: new Date(changedAt).toISOString(),
-      voice_note_url: voiceUrl,
-    }).select('id').single()
+    if (isEditing) {
+      const { error } = await supabase.from('diapers').update(payload).eq('id', initialData!.id)
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      toast.success('Diaper updated')
+      onSaved(); onClose()
+    } else {
+      const { data, error } = await supabase.from('diapers').insert({ baby_id: babyId, ...payload }).select('id').single()
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      setLastSavedId(data.id)
+      toast.success('Diaper logged')
+      onSaved(); onClose()
+    }
+  }
+
+  async function handleDelete() {
+    if (!initialData) return
+    setSaving(true)
+    const { error } = await supabase.from('diapers').delete().eq('id', initialData.id)
     setSaving(false)
     if (error) { toast.error(error.message); return }
-    setLastSavedId(data.id)
-    toast.success('Diaper logged')
+    toast.success('Diaper deleted')
     onSaved(); onClose()
   }
 
@@ -104,8 +141,8 @@ export default function DiaperModal({ open, babyId, onClose, onSaved }: Props) {
       <SheetContent side="bottom" className="max-h-[90dvh] overflow-y-auto rounded-t-2xl">
         <SheetHeader>
           <SheetTitle className="flex items-center justify-between">
-            Log Diaper
-            {lastSavedId && (
+            {isEditing ? 'Edit Diaper' : 'Log Diaper'}
+            {!isEditing && lastSavedId && (
               <Button variant="ghost" size="sm" onClick={undo}>
                 <Undo2 className="h-4 w-4 mr-1" /> Undo
               </Button>
@@ -212,8 +249,14 @@ export default function DiaperModal({ open, babyId, onClose, onSaved }: Props) {
           </div>
 
           <Button className="w-full h-14 text-base" onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : 'Log diaper'}
+            {saving ? 'Saving…' : isEditing ? 'Save changes' : 'Log diaper'}
           </Button>
+
+          {isEditing && (
+            <Button variant="destructive" className="w-full" onClick={handleDelete} disabled={saving}>
+              Delete this diaper
+            </Button>
+          )}
         </div>
       </SheetContent>
     </Sheet>

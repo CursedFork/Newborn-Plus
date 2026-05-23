@@ -12,17 +12,19 @@ import { Slider } from '@/components/ui/slider'
 import { Mic, MicOff, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { toLocalInputValue } from '@/lib/time'
-import type { PumpOutputType, PumpSide } from '@/lib/database.types'
+import type { PumpOutputType, PumpSide, PumpRow } from '@/lib/database.types'
 
 interface Props {
   open: boolean
   babyId: string
   onClose: () => void
   onSaved: () => void
+  initialData?: PumpRow
 }
 
-export default function PumpModal({ open, babyId, onClose, onSaved }: Props) {
+export default function PumpModal({ open, babyId, onClose, onSaved, initialData }: Props) {
   const supabase = createClient()
+  const isEditing = !!initialData
 
   const [outputType, setOutputType] = useState<PumpOutputType>('mature_milk')
   const [volumeMl, setVolumeMl] = useState(60)
@@ -40,24 +42,37 @@ export default function PumpModal({ open, babyId, onClose, onSaved }: Props) {
 
   useEffect(() => {
     if (!open) return
-    supabase
-      .from('pumps')
-      .select('output_type, volume_ml, side')
-      .eq('baby_id', babyId)
-      .order('start_at', { ascending: false })
-      .limit(1)
-      .single()
-      .then(({ data }) => {
-        if (data) {
-          setOutputType(data.output_type as PumpOutputType)
-          setVolumeMl(data.volume_ml)
-          if (data.side) setSide(data.side as PumpSide)
-        }
-      })
-    setStartAt(toLocalInputValue())
-    setConsistencyNotes(''); setDurationMin(undefined)
-    setVoiceUrl(null); setLastSavedId(null)
-  }, [open, babyId, supabase])
+    setLastSavedId(null)
+
+    if (initialData) {
+      setOutputType(initialData.output_type)
+      setVolumeMl(initialData.volume_ml)
+      setDurationMin(initialData.duration_min ?? undefined)
+      setSide(initialData.side ?? '')
+      setConsistencyNotes(initialData.consistency_notes ?? '')
+      setStartAt(toLocalInputValue(new Date(initialData.start_at)))
+      setVoiceUrl(initialData.voice_note_url)
+    } else {
+      supabase
+        .from('pumps')
+        .select('output_type, volume_ml, side')
+        .eq('baby_id', babyId)
+        .order('start_at', { ascending: false })
+        .limit(1)
+        .single()
+        .then(({ data }) => {
+          if (data) {
+            setOutputType(data.output_type as PumpOutputType)
+            setVolumeMl(data.volume_ml)
+            if (data.side) setSide(data.side as PumpSide)
+          }
+        })
+      setStartAt(toLocalInputValue())
+      setConsistencyNotes(''); setDurationMin(undefined)
+      setVoiceUrl(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, babyId, initialData?.id])
 
   async function toggleRecording() {
     if (recording) { recorderRef.current?.stop(); setRecording(false); return }
@@ -79,21 +94,41 @@ export default function PumpModal({ open, babyId, onClose, onSaved }: Props) {
     } catch { toast.error('Microphone access denied') }
   }
 
+  const payload = {
+    output_type: outputType,
+    volume_ml: volumeMl,
+    duration_min: durationMin ?? null,
+    side: side || null,
+    consistency_notes: consistencyNotes || null,
+    start_at: new Date(startAt).toISOString(),
+    voice_note_url: voiceUrl,
+  }
+
   async function save() {
     setSaving(true)
-    const { data, error } = await supabase.from('pumps').insert({
-      baby_id: babyId,
-      output_type: outputType,
-      volume_ml: volumeMl,
-      duration_min: durationMin ?? null,
-      side: side || null,
-      consistency_notes: consistencyNotes || null,
-      start_at: new Date(startAt).toISOString(),
-      voice_note_url: voiceUrl,
-    }).select('id').single()
+    if (isEditing) {
+      const { error } = await supabase.from('pumps').update(payload).eq('id', initialData!.id)
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      toast.success('Pump updated')
+      onSaved(); onClose()
+    } else {
+      const { data, error } = await supabase.from('pumps').insert({ baby_id: babyId, ...payload }).select('id').single()
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      setLastSavedId(data.id)
+      toast.success('Pump logged')
+      onSaved(); onClose()
+    }
+  }
+
+  async function handleDelete() {
+    if (!initialData) return
+    setSaving(true)
+    const { error } = await supabase.from('pumps').delete().eq('id', initialData.id)
     setSaving(false)
     if (error) { toast.error(error.message); return }
-    setLastSavedId(data.id); toast.success('Pump logged')
+    toast.success('Pump deleted')
     onSaved(); onClose()
   }
 
@@ -108,8 +143,8 @@ export default function PumpModal({ open, babyId, onClose, onSaved }: Props) {
       <SheetContent side="bottom" className="max-h-[90dvh] overflow-y-auto rounded-t-2xl">
         <SheetHeader>
           <SheetTitle className="flex items-center justify-between">
-            Log Pump
-            {lastSavedId && (
+            {isEditing ? 'Edit Pump' : 'Log Pump'}
+            {!isEditing && lastSavedId && (
               <Button variant="ghost" size="sm" onClick={undo}>
                 <Undo2 className="h-4 w-4 mr-1" /> Undo
               </Button>
@@ -171,8 +206,14 @@ export default function PumpModal({ open, babyId, onClose, onSaved }: Props) {
           </div>
 
           <Button className="w-full h-14 text-base" onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : 'Log pump'}
+            {saving ? 'Saving…' : isEditing ? 'Save changes' : 'Log pump'}
           </Button>
+
+          {isEditing && (
+            <Button variant="destructive" className="w-full" onClick={handleDelete} disabled={saving}>
+              Delete this pump
+            </Button>
+          )}
         </div>
       </SheetContent>
     </Sheet>
