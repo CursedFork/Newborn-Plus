@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Baby, Droplets, Moon, Activity, Hash, Gauge } from 'lucide-react'
+import { Baby, Droplets, Moon, Activity, Hash, Gauge, Scale } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { useBaby } from '@/contexts/BabyContext'
 import { useAppearance } from '@/contexts/AppearanceContext'
@@ -15,13 +15,14 @@ import FeedModal from '@/components/log/FeedModal'
 import DiaperModal from '@/components/log/DiaperModal'
 import PumpModal from '@/components/log/PumpModal'
 import SleepModal from '@/components/log/SleepModal'
+import WeightModal from '@/components/log/WeightModal'
 import { NoBabyPrompt } from '@/components/home/NoBabyPrompt'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { Database, DailyRollupRow } from '@/lib/database.types'
 
 type Feed = Database['public']['Tables']['feeds']['Row']
 type Diaper = Database['public']['Tables']['diapers']['Row']
-type ActiveModal = 'feed' | 'diaper' | 'pump' | 'sleep' | null
+type ActiveModal = 'feed' | 'diaper' | 'pump' | 'sleep' | 'weight' | null
 
 /** Returns today's YYYY-MM-DD date in the given IANA timezone. */
 function todayInTz(tz: string): string {
@@ -245,6 +246,14 @@ export default function HomePage() {
           color="bg-indigo-500 hover:bg-indigo-600"
           onClick={() => setActiveModal('sleep')}
         />
+        <div className="col-span-2">
+          <QuickLogButton
+            icon={<Scale className="h-6 w-6" />}
+            label="Weight"
+            color="bg-emerald-500 hover:bg-emerald-600"
+            onClick={() => setActiveModal('weight')}
+          />
+        </div>
       </div>
 
       {/* ── Modals ─────────────────────────────────────────────────────── */}
@@ -262,6 +271,10 @@ export default function HomePage() {
       />
       <SleepModal
         open={activeModal === 'sleep'} babyId={baby.id}
+        onClose={() => setActiveModal(null)} onSaved={fetchAll}
+      />
+      <WeightModal
+        open={activeModal === 'weight'} babyId={baby.id}
         onClose={() => setActiveModal(null)} onSaved={fetchAll}
       />
     </div>

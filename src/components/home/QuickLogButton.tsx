@@ -12,7 +12,7 @@ export default function QuickLogButton({ icon, label, color, onClick }: Props) {
     <button
       onClick={onClick}
       className={cn(
-        'flex flex-col items-center justify-center gap-2 rounded-2xl p-6 text-white',
+        'flex w-full flex-col items-center justify-center gap-2 rounded-2xl p-6 text-white',
         'active:scale-95 transition-transform min-h-[100px]',
         color
       )}
