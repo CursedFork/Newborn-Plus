@@ -15,6 +15,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useAppearance } from '@/contexts/AppearanceContext'
+import { formatVolume } from '@/lib/units'
+import type { VolumeUnit } from '@/lib/units'
 import FeedModal from '@/components/log/FeedModal'
 import DiaperModal from '@/components/log/DiaperModal'
 import SleepModal from '@/components/log/SleepModal'
@@ -86,9 +89,31 @@ function pedNoteSummary(n: PedNoteRow): HistoryItem {
   return { at: n.occurred_at, id: n.id, type: 'ped_note', rawRow: n, summary: n.content, badge: label, badgeVariant: 'outline' }
 }
 
+/** Re-derives the display summary from the raw row, respecting the current unit. */
+function getSummary(item: HistoryItem, unit: VolumeUnit): string {
+  if (item.type === 'feed') {
+    const f = item.rawRow as FeedRow
+    const typeName = f.type === 'breast_milk' ? 'Breast milk' : f.type === 'colostrum' ? 'Colostrum' : 'Formula'
+    const parts = [`${formatVolume(f.volume_ml, unit)} ${typeName}`]
+    if (f.formula_brand) parts.push(`(${f.formula_brand})`)
+    if (f.spit_up) parts.push('· spit-up')
+    if (f.volume_offered_ml && f.volume_ml < f.volume_offered_ml * 0.5) parts.push('· refused')
+    return parts.join(' ')
+  }
+  if (item.type === 'pump') {
+    const p = item.rawRow as PumpRow
+    const parts = [`${formatVolume(p.volume_ml, unit)} ${p.output_type.replace('_', ' ')}`]
+    if (p.side) parts.push(`· ${p.side}`)
+    if (p.duration_min) parts.push(`· ${p.duration_min} min`)
+    return parts.join(' ')
+  }
+  return item.summary
+}
+
 export default function HistoryPage() {
   const supabase = createClient()
   const { baby, loading: babyLoading } = useBaby()
+  const { volumeUnit } = useAppearance()
   const [items, setItems] = useState<HistoryItem[]>([])
   const [fetching, setFetching] = useState(false)
   const [editTarget, setEditTarget] = useState<HistoryItem | null>(null)
@@ -176,7 +201,7 @@ export default function HistoryPage() {
                 {item.badge}
               </Badge>
               <div className="flex-1 min-w-0">
-                <p className="text-sm leading-snug">{item.summary}</p>
+                <p className="text-sm leading-snug">{getSummary(item, volumeUnit)}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{formatLocalDateTime(item.at)}</p>
               </div>
               <DropdownMenu>

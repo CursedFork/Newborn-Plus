@@ -12,6 +12,8 @@ import { Slider } from '@/components/ui/slider'
 import { Mic, MicOff, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { toLocalInputValue } from '@/lib/time'
+import { useAppearance } from '@/contexts/AppearanceContext'
+import { formatVolume } from '@/lib/units'
 import type { PumpOutputType, PumpSide, PumpRow } from '@/lib/database.types'
 
 interface Props {
@@ -24,6 +26,7 @@ interface Props {
 
 export default function PumpModal({ open, babyId, onClose, onSaved, initialData }: Props) {
   const supabase = createClient()
+  const { volumeUnit } = useAppearance()
   const isEditing = !!initialData
 
   const [outputType, setOutputType] = useState<PumpOutputType>('mature_milk')
@@ -166,7 +169,7 @@ export default function PumpModal({ open, babyId, onClose, onSaved, initialData 
           </div>
 
           <div className="space-y-2">
-            <Label>Volume: <strong>{volumeMl} ml</strong></Label>
+            <Label>Volume: <strong>{formatVolume(volumeMl, volumeUnit)}</strong></Label>
             <Slider min={0} max={300} step={5} value={volumeMl} onValueChange={(v) => setVolumeMl(Array.isArray(v) ? v[0] : v)} className="touch-none" />
           </div>
 

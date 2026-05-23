@@ -1,26 +1,35 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState } from 'react'
+import type { VolumeUnit } from '@/lib/units'
 
 export type BgTheme = 'none' | 'whimsical' | 'botanical' | 'abstract' | 'doodle' | 'starry'
 
 interface AppearanceContextValue {
   bgTheme: BgTheme
   setBgTheme: (t: BgTheme) => void
+  volumeUnit: VolumeUnit
+  setVolumeUnit: (u: VolumeUnit) => void
 }
 
 const AppearanceContext = createContext<AppearanceContextValue>({
   bgTheme: 'none',
   setBgTheme: () => {},
+  volumeUnit: 'ml',
+  setVolumeUnit: () => {},
 })
 
 export function AppearanceProvider({ children }: { children: React.ReactNode }) {
   const [bgTheme, setBgThemeState] = useState<BgTheme>('none')
+  const [volumeUnit, setVolumeUnitState] = useState<VolumeUnit>('ml')
 
-  // Load from localStorage on mount
+  // Load persisted preferences on mount
   useEffect(() => {
-    const stored = localStorage.getItem('bg-theme') as BgTheme | null
-    if (stored && stored !== 'none') setBgThemeState(stored)
+    const storedTheme = localStorage.getItem('bg-theme') as BgTheme | null
+    if (storedTheme) setBgThemeState(storedTheme)
+
+    const storedUnit = localStorage.getItem('volume-unit') as VolumeUnit | null
+    if (storedUnit === 'ml' || storedUnit === 'oz') setVolumeUnitState(storedUnit)
   }, [])
 
   // Toggle the has-theme class so globals.css can make the body transparent
@@ -38,8 +47,13 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
     localStorage.setItem('bg-theme', t)
   }
 
+  function setVolumeUnit(u: VolumeUnit) {
+    setVolumeUnitState(u)
+    localStorage.setItem('volume-unit', u)
+  }
+
   return (
-    <AppearanceContext.Provider value={{ bgTheme, setBgTheme }}>
+    <AppearanceContext.Provider value={{ bgTheme, setBgTheme, volumeUnit, setVolumeUnit }}>
       {children}
     </AppearanceContext.Provider>
   )

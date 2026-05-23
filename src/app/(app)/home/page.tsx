@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { Baby, Droplets, Moon, Activity, Hash, Gauge } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { useBaby } from '@/contexts/BabyContext'
+import { useAppearance } from '@/contexts/AppearanceContext'
+import { formatVolume, ML_PER_OZ } from '@/lib/units'
 import { createClient } from '@/lib/supabase/client'
 import StatusCard from '@/components/home/StatusCard'
 import QuickLogButton from '@/components/home/QuickLogButton'
@@ -35,6 +37,7 @@ function nDaysAgoInTz(n: number, tz: string): string {
 
 export default function HomePage() {
   const { baby, loading } = useBaby()
+  const { volumeUnit } = useAppearance()
   const supabase = createClient()
 
   const [activeModal, setActiveModal] = useState<ActiveModal>(null)
@@ -101,6 +104,12 @@ export default function HomePage() {
   const todayFeedCount = todayRollup?.feed_count ?? 0
   const todayAvgMl = todayFeedCount > 0 ? Math.round(todayTotalMl / todayFeedCount) : 0
 
+  // Display values in preferred unit
+  const displayTotal = volumeUnit === 'oz'
+    ? (todayTotalMl / ML_PER_OZ).toFixed(1)
+    : String(todayTotalMl)
+  const displayAvg = formatVolume(todayAvgMl, volumeUnit)
+
   const ageDays = Math.floor(
     (Date.now() - new Date(baby.birth_date + 'T12:00:00Z').getTime()) / (1000 * 60 * 60 * 24)
   )
@@ -122,13 +131,13 @@ export default function HomePage() {
           </p>
           <div className="flex items-end gap-2 mb-1">
             <span className="text-5xl font-bold tabular-nums leading-none">
-              {todayTotalMl}
+              {displayTotal}
             </span>
-            <span className="text-xl font-medium text-muted-foreground mb-1">ml</span>
+            <span className="text-xl font-medium text-muted-foreground mb-1">{volumeUnit}</span>
           </div>
           {todayFeedCount > 0 ? (
             <p className="text-sm text-muted-foreground">
-              {todayFeedCount} feed{todayFeedCount !== 1 ? 's' : ''} &middot; avg {todayAvgMl} ml/feed
+              {todayFeedCount} feed{todayFeedCount !== 1 ? 's' : ''} &middot; avg {displayAvg}/feed
             </p>
           ) : (
             <p className="text-sm text-muted-foreground">No feeds logged yet today</p>
@@ -161,7 +170,7 @@ export default function HomePage() {
         <StatusCard
           icon={<Gauge className="h-4 w-4" />}
           label="Avg per feed"
-          value={todayAvgMl > 0 ? `${todayAvgMl} ml` : '—'}
+          value={todayAvgMl > 0 ? displayAvg : '—'}
           size="lg"
         />
       </div>
@@ -175,7 +184,7 @@ export default function HomePage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="px-2 pt-2 pb-3">
-            <IntakeChart data={weekRollup} />
+            <IntakeChart data={weekRollup} unit={volumeUnit} />
             {/* legend */}
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 px-2">
               {weekRollup.some((r) => r.formula_ml > 0) && (

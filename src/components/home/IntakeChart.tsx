@@ -9,20 +9,28 @@ import {
   Tooltip,
 } from 'recharts'
 import type { DailyRollupRow } from '@/lib/database.types'
+import { ML_PER_OZ, type VolumeUnit } from '@/lib/units'
 
 interface Props {
   data: DailyRollupRow[]
+  unit?: VolumeUnit
 }
 
-export default function IntakeChart({ data }: Props) {
+function toDisplay(ml: number, unit: VolumeUnit): number {
+  return unit === 'oz'
+    ? parseFloat((ml / ML_PER_OZ).toFixed(2))
+    : Math.round(ml)
+}
+
+export default function IntakeChart({ data, unit = 'ml' }: Props) {
   const chartData = data.map((row) => ({
     day: new Date(row.day + 'T12:00:00Z').toLocaleDateString(undefined, {
       weekday: 'short',
       day: 'numeric',
     }),
-    formula: Math.round(row.formula_ml),
-    breast_milk: Math.round(row.breast_milk_ml),
-    colostrum: Math.round(row.colostrum_ml),
+    formula: toDisplay(row.formula_ml, unit),
+    breast_milk: toDisplay(row.breast_milk_ml, unit),
+    colostrum: toDisplay(row.colostrum_ml, unit),
   }))
 
   const hasFormula = data.some((r) => r.formula_ml > 0)
@@ -42,9 +50,13 @@ export default function IntakeChart({ data }: Props) {
           tick={{ fontSize: 11 }}
           tickLine={false}
           axisLine={false}
+          tickFormatter={(v) => unit === 'oz' ? `${v}` : `${v}`}
         />
         <Tooltip
-          formatter={(v, name) => [`${Number(v)} ml`, String(name).replace('_', ' ')]}
+          formatter={(v, name) => [
+            `${Number(v).toFixed(unit === 'oz' ? 1 : 0)} ${unit}`,
+            String(name).replace('_', ' '),
+          ]}
           contentStyle={{ borderRadius: 8, fontSize: 12, border: '1px solid hsl(var(--border))' }}
           labelStyle={{ fontWeight: 600 }}
         />

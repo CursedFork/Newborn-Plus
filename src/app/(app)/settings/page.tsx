@@ -23,7 +23,7 @@ const THEME_OPTIONS: {
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme()
-  const { bgTheme, setBgTheme } = useAppearance()
+  const { bgTheme, setBgTheme, volumeUnit, setVolumeUnit } = useAppearance()
 
   return (
     <div className="p-4 pt-6 space-y-8 max-w-md">
@@ -54,6 +54,30 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Volume unit */}
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Volume unit</p>
+          <div className="grid grid-cols-2 gap-2">
+            {(['ml', 'oz'] as const).map((u) => (
+              <button
+                key={u}
+                onClick={() => setVolumeUnit(u)}
+                className={cn(
+                  'rounded-lg border-2 py-3 text-sm font-medium transition-colors',
+                  volumeUnit === u
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border bg-card text-card-foreground hover:bg-muted'
+                )}
+              >
+                {u === 'ml' ? '💧 mL' : '🥛 oz'}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Affects how volumes are displayed throughout the app. Data is always stored in mL.
+          </p>
         </div>
 
         {/* Background theme picker */}

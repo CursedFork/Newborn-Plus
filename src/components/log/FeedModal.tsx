@@ -13,6 +13,8 @@ import { Slider } from '@/components/ui/slider'
 import { Mic, MicOff, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { toLocalInputValue } from '@/lib/time'
+import { useAppearance } from '@/contexts/AppearanceContext'
+import { formatVolume } from '@/lib/units'
 import type { FeedType, FeedRow } from '@/lib/database.types'
 
 interface Props {
@@ -27,6 +29,7 @@ const FORMULA_BRANDS = ['Similac 360', 'Enfamil', 'Bobbie', 'Other']
 
 export default function FeedModal({ open, babyId, onClose, onSaved, initialData }: Props) {
   const supabase = createClient()
+  const { volumeUnit } = useAppearance()
   const isEditing = !!initialData
 
   const [type, setType] = useState<FeedType>('formula')
@@ -218,7 +221,7 @@ export default function FeedModal({ open, babyId, onClose, onSaved, initialData 
 
           {/* Volume */}
           <div className="space-y-2">
-            <Label>Volume taken: <strong>{volumeMl} ml</strong></Label>
+            <Label>Volume taken: <strong>{formatVolume(volumeMl, volumeUnit)}</strong></Label>
             <Slider
               min={0} max={240} step={5}
               value={volumeMl}
