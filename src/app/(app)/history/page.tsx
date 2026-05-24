@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useBaby } from '@/contexts/BabyContext'
 import { formatLocalDateTime } from '@/lib/export-utils'
@@ -13,8 +13,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { MoreVertical, Pencil, Trash2 } from 'lucide-react'
+import { MoreVertical, Pencil, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import { useAppearance } from '@/contexts/AppearanceContext'
 import { formatVolume } from '@/lib/units'
 import type { VolumeUnit } from '@/lib/units'
@@ -110,6 +111,26 @@ function getSummary(item: HistoryItem, unit: VolumeUnit): string {
   return item.summary
 }
 
+type DateFilter = 'all' | 'today' | '7d' | '30d'
+
+const ALL_TYPES: EventType[] = ['feed', 'diaper', 'pump', 'sleep', 'weight', 'ped_note']
+
+const TYPE_META: Record<EventType, { label: string; chip: string; chipActive: string }> = {
+  feed:     { label: 'Feed',    chip: 'border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-300',    chipActive: 'bg-blue-100 dark:bg-blue-900/40' },
+  diaper:   { label: 'Diaper', chip: 'border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300', chipActive: 'bg-amber-100 dark:bg-amber-900/40' },
+  pump:     { label: 'Pump',   chip: 'border-pink-300 text-pink-700 dark:border-pink-700 dark:text-pink-300',     chipActive: 'bg-pink-100 dark:bg-pink-900/40' },
+  sleep:    { label: 'Sleep',  chip: 'border-indigo-300 text-indigo-700 dark:border-indigo-700 dark:text-indigo-300', chipActive: 'bg-indigo-100 dark:bg-indigo-900/40' },
+  weight:   { label: 'Weight', chip: 'border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-300', chipActive: 'bg-emerald-100 dark:bg-emerald-900/40' },
+  ped_note: { label: 'Note',   chip: 'border-border text-muted-foreground', chipActive: 'bg-muted' },
+}
+
+const DATE_OPTIONS: { id: DateFilter; label: string }[] = [
+  { id: 'all',   label: 'All time' },
+  { id: 'today', label: 'Today' },
+  { id: '7d',    label: '7 days' },
+  { id: '30d',   label: '30 days' },
+]
+
 export default function HistoryPage() {
   const supabase = createClient()
   const { baby, loading: babyLoading } = useBaby()
@@ -118,6 +139,56 @@ export default function HistoryPage() {
   const [fetching, setFetching] = useState(false)
   const [editTarget, setEditTarget] = useState<HistoryItem | null>(null)
   const [limit] = useState(100)
+
+  // ── Filters ────────────────────────────────────────────────────────────────
+  const [activeTypes, setActiveTypes] = useState<Set<EventType>>(new Set(ALL_TYPES))
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all')
+
+  const filtersActive = activeTypes.size < ALL_TYPES.length || dateFilter !== 'all'
+
+  function toggleType(t: EventType) {
+    setActiveTypes((prev) => {
+      const next = new Set(prev)
+      if (next.has(t)) {
+        next.delete(t)
+      } else {
+        next.add(t)
+      }
+      return next
+    })
+  }
+
+  function resetFilters() {
+    setActiveTypes(new Set(ALL_TYPES))
+    setDateFilter('all')
+  }
+
+  const filteredItems = useMemo(() => {
+    let result = items
+
+    // Type filter
+    if (activeTypes.size < ALL_TYPES.length) {
+      result = result.filter((i) => activeTypes.has(i.type))
+    }
+
+    // Date filter — compare against baby's timezone for "today", ms cutoff for ranges
+    if (dateFilter !== 'all') {
+      const tz = baby?.timezone ?? 'America/New_York'
+      if (dateFilter === 'today') {
+        const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date())
+        result = result.filter((i) => {
+          const itemDate = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(i.at))
+          return itemDate === todayStr
+        })
+      } else {
+        const days = dateFilter === '7d' ? 7 : 30
+        const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+        result = result.filter((i) => new Date(i.at).getTime() >= cutoff)
+      }
+    }
+
+    return result
+  }, [items, activeTypes, dateFilter, baby?.timezone])
 
   const fetchData = useCallback(async () => {
     if (!baby) return
@@ -182,17 +253,74 @@ export default function HistoryPage() {
 
   return (
     <div className="p-4 pt-6 pb-24 space-y-4">
-      <h1 className="text-xl font-bold">History</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold">History</h1>
+        {filtersActive && (
+          <button
+            onClick={resetFilters}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="h-3 w-3" /> Reset filters
+          </button>
+        )}
+      </div>
 
+      {/* ── Type chips ─────────────────────────────────────────────────── */}
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-none">
+        {ALL_TYPES.map((t) => {
+          const { label, chip, chipActive } = TYPE_META[t]
+          const active = activeTypes.has(t)
+          return (
+            <button
+              key={t}
+              onClick={() => toggleType(t)}
+              className={cn(
+                'shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                chip,
+                active ? chipActive : 'bg-card opacity-40'
+              )}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* ── Date filter ────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-4 gap-1.5">
+        {DATE_OPTIONS.map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => setDateFilter(id)}
+            className={cn(
+              'rounded-lg border py-1.5 text-xs font-medium transition-colors',
+              dateFilter === id
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-border bg-card text-muted-foreground hover:bg-muted'
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── List ───────────────────────────────────────────────────────── */}
       {fetching ? (
         <div className="space-y-3">
           {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
         </div>
       ) : items.length === 0 ? (
         <p className="text-muted-foreground text-sm">No events logged yet.</p>
+      ) : filteredItems.length === 0 ? (
+        <div className="text-center py-10 space-y-2">
+          <p className="text-muted-foreground text-sm">No events match the current filters.</p>
+          <button onClick={resetFilters} className="text-xs underline text-muted-foreground">
+            Reset filters
+          </button>
+        </div>
       ) : (
         <div className="space-y-2">
-          {items.map((item) => (
+          {filteredItems.map((item) => (
             <div
               key={`${item.type}-${item.id}`}
               className="flex items-start gap-3 p-3 rounded-lg border border-border bg-card"
@@ -223,7 +351,7 @@ export default function HistoryPage() {
             </div>
           ))}
           <p className="text-xs text-muted-foreground pt-2 text-center">
-            Showing most recent {limit} events of each type
+            {filteredItems.length} of {items.length} events
           </p>
         </div>
       )}
