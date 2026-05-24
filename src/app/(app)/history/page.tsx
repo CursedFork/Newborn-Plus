@@ -141,10 +141,10 @@ export default function HistoryPage() {
   const [limit] = useState(100)
 
   // ── Filters ────────────────────────────────────────────────────────────────
-  const [activeTypes, setActiveTypes] = useState<Set<EventType>>(new Set(ALL_TYPES))
+  const [activeTypes, setActiveTypes] = useState<Set<EventType>>(new Set())
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
 
-  const filtersActive = activeTypes.size < ALL_TYPES.length || dateFilter !== 'all'
+  const filtersActive = activeTypes.size > 0 || dateFilter !== 'all'
 
   function toggleType(t: EventType) {
     setActiveTypes((prev) => {
@@ -159,15 +159,15 @@ export default function HistoryPage() {
   }
 
   function resetFilters() {
-    setActiveTypes(new Set(ALL_TYPES))
+    setActiveTypes(new Set())
     setDateFilter('all')
   }
 
   const filteredItems = useMemo(() => {
     let result = items
 
-    // Type filter
-    if (activeTypes.size < ALL_TYPES.length) {
+    // Type filter — empty set means "show all"; non-empty means "show only these"
+    if (activeTypes.size > 0) {
       result = result.filter((i) => activeTypes.has(i.type))
     }
 
@@ -269,7 +269,8 @@ export default function HistoryPage() {
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-none">
         {ALL_TYPES.map((t) => {
           const { label, chip, chipActive } = TYPE_META[t]
-          const active = activeTypes.has(t)
+          const isSelected = activeTypes.has(t)
+          const anySelected = activeTypes.size > 0
           return (
             <button
               key={t}
@@ -277,7 +278,7 @@ export default function HistoryPage() {
               className={cn(
                 'shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
                 chip,
-                active ? chipActive : 'bg-card opacity-40'
+                isSelected ? chipActive : anySelected ? 'bg-card opacity-40' : 'bg-card'
               )}
             >
               {label}
