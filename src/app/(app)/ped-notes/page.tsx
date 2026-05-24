@@ -4,14 +4,15 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useBaby } from '@/contexts/BabyContext'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Plus, Pencil } from 'lucide-react'
+import { Plus, Pencil, FileText } from 'lucide-react'
 import { toast } from 'sonner'
+import Link from 'next/link'
 import PedNoteModal from '@/components/log/PedNoteModal'
 import type { PedNoteRow, PedNoteType } from '@/lib/database.types'
 
@@ -196,10 +197,16 @@ export default function PedNotesPage() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Doctor Notes</h1>
-        <Button size="sm" onClick={() => setAddOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" />
-          Add note
-        </Button>
+        <div className="flex items-center gap-2">
+          <Link href="/export" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+            <FileText className="h-4 w-4 mr-1" />
+            Export
+          </Link>
+          <Button size="sm" onClick={() => setAddOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            Add note
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
