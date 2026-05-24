@@ -2,15 +2,15 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, TrendingUp, Clock, FileText, Settings } from 'lucide-react'
+import { Home, TrendingUp, Clock, Settings, Stethoscope } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV = [
-  { href: '/home',    icon: Home,        label: 'Home'    },
-  { href: '/trends',  icon: TrendingUp,  label: 'Trends'  },
-  { href: '/history', icon: Clock,       label: 'History' },
-  { href: '/export',  icon: FileText,    label: 'Export'  },
-  { href: '/settings',icon: Settings,    label: 'Settings'},
+  { href: '/home',      icon: Home,        label: 'Home'    },
+  { href: '/trends',    icon: TrendingUp,  label: 'Trends'  },
+  { href: '/history',   icon: Clock,       label: 'History' },
+  { href: '/ped-notes', icon: Stethoscope, label: 'Doctor'  },
+  { href: '/settings',  icon: Settings,    label: 'Settings'},
 ]
 
 export default function BottomNav() {

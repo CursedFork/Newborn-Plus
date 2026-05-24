@@ -19,9 +19,10 @@ interface Props {
   onClose: () => void
   onSaved: () => void
   initialData?: PedNoteRow
+  defaultType?: PedNoteType
 }
 
-export default function PedNoteModal({ open, babyId, onClose, onSaved, initialData }: Props) {
+export default function PedNoteModal({ open, babyId, onClose, onSaved, initialData, defaultType }: Props) {
   const supabase = createClient()
   const isEditing = !!initialData
 
@@ -41,10 +42,11 @@ export default function PedNoteModal({ open, babyId, onClose, onSaved, initialDa
       setOccurredAt(toLocalInputValue(new Date(initialData.occurred_at)))
     } else {
       setOccurredAt(toLocalInputValue())
-      setContent(''); setType('question')
+      setContent('')
+      setType(defaultType ?? 'question')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialData?.id])
+  }, [open, initialData?.id, defaultType])
 
   async function save() {
     if (!content.trim()) { toast.error('Enter a note'); return }
