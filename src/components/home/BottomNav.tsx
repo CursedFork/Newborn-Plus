@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, TrendingUp, Clock, Settings, Stethoscope } from 'lucide-react'
+import { Home, TrendingUp, Clock, FileText, Settings, Stethoscope } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV = [
@@ -10,6 +10,7 @@ const NAV = [
   { href: '/trends',    icon: TrendingUp,  label: 'Trends'  },
   { href: '/history',   icon: Clock,       label: 'History' },
   { href: '/ped-notes', icon: Stethoscope, label: 'Doctor'  },
+  { href: '/export',    icon: FileText,    label: 'Export'  },
   { href: '/settings',  icon: Settings,    label: 'Settings'},
 ]
 
@@ -26,7 +27,7 @@ export default function BottomNav() {
               key={href}
               href={href}
               className={cn(
-                'flex flex-1 flex-col items-center gap-1 py-3 text-xs transition-colors min-h-[60px] justify-center',
+                'flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] transition-colors min-h-[56px] justify-center',
                 active
                   ? 'text-foreground'
                   : 'text-muted-foreground hover:text-foreground'
