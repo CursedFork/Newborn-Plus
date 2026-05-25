@@ -145,7 +145,13 @@ export default function ExportCharts({ rollup, feeds, pumps, weights, babyBirthD
     Pees:  Number(r.pee_count),
     Poops: Number(r.poop_count),
   }))
-  const diaperData = addIndexTrend(diaperRaw, (d) => d.Pees + d.Poops)
+  const peeReg   = linearRegression(diaperRaw.map((d, i) => ({ x: i, y: d.Pees })))
+  const poopReg  = linearRegression(diaperRaw.map((d, i) => ({ x: i, y: d.Poops })))
+  const diaperData = diaperRaw.map((d, i) => ({
+    ...d,
+    peeTrend:  peeReg  ? parseFloat((peeReg.slope  * i + peeReg.intercept).toFixed(2))  : undefined,
+    poopTrend: poopReg ? parseFloat((poopReg.slope * i + poopReg.intercept).toFixed(2)) : undefined,
+  }))
 
   // ── 6. Weight curve with WHO percentiles + trend ───────────────────────────
   const birthMs = new Date(babyBirthDate).getTime()
@@ -297,7 +303,8 @@ export default function ExportCharts({ rollup, feeds, pumps, weights, babyBirthD
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="Pees"  fill="#60a5fa" />
               <Bar dataKey="Poops" fill="#a78bfa" />
-              <Line dataKey="trend" {...trendLineProps} />
+              <Line dataKey="peeTrend"  name="Pee trend"  stroke="#60a5fa" strokeDasharray={TREND_DASH} strokeWidth={1.5} dot={false} activeDot={false} />
+              <Line dataKey="poopTrend" name="Poop trend" stroke="#a78bfa" strokeDasharray={TREND_DASH} strokeWidth={1.5} dot={false} activeDot={false} />
             </ComposedChart>
           </ResponsiveContainer>
         </ChartSection>
