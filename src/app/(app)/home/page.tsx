@@ -45,6 +45,7 @@ export default function HomePage() {
   const [lastFeed, setLastFeed] = useState<Feed | null>(null)
   const [lastDiaper, setLastDiaper] = useState<Diaper | null>(null)
   const [activeFeeds, setActiveFeeds] = useState<Feed[]>([])
+  const [dismissedFeedIds, setDismissedFeedIds] = useState<Set<string>>(new Set())
   const [weekRollup, setWeekRollup] = useState<DailyRollupRow[]>([])
 
   const fetchAll = useCallback(async () => {
@@ -212,11 +213,17 @@ export default function HomePage() {
       )}
 
       {/* ── Active bottle timers ────────────────────────────────────────── */}
-      {activeFeeds.length > 0 && (
+      {activeFeeds.filter((f) => !dismissedFeedIds.has(f.id)).length > 0 && (
         <div className="space-y-2">
-          {activeFeeds.map((feed) => (
-            <BottleTimerCard key={feed.id} feed={feed} />
-          ))}
+          {activeFeeds
+            .filter((f) => !dismissedFeedIds.has(f.id))
+            .map((feed) => (
+              <BottleTimerCard
+                key={feed.id}
+                feed={feed}
+                onDismiss={() => setDismissedFeedIds((prev) => new Set([...prev, feed.id]))}
+              />
+            ))}
         </div>
       )}
 

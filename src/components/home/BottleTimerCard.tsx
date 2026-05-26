@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Database } from '@/lib/database.types'
 
@@ -21,7 +23,7 @@ function formatRemaining(ms: number): string {
   return `${min}:${sec.toString().padStart(2, '0')}`
 }
 
-export default function BottleTimerCard({ feed }: { feed: Feed }) {
+export default function BottleTimerCard({ feed, onDismiss }: { feed: Feed; onDismiss?: () => void }) {
   const limitMs = LIMITS_MS[feed.type]
   const startMs = new Date(feed.start_at).getTime()
 
@@ -55,12 +57,25 @@ export default function BottleTimerCard({ feed }: { feed: Feed }) {
               <p className="text-xs text-muted-foreground">{feed.formula_brand}</p>
             )}
           </div>
-          <span className={cn(
-            'text-2xl font-mono font-bold tabular-nums',
-            expired ? 'text-red-600' : warning ? 'text-yellow-600' : 'text-foreground'
-          )}>
-            {formatRemaining(remainingMs)}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={cn(
+              'text-2xl font-mono font-bold tabular-nums',
+              expired ? 'text-red-600' : warning ? 'text-yellow-600' : 'text-foreground'
+            )}>
+              {formatRemaining(remainingMs)}
+            </span>
+            {onDismiss && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                onClick={onDismiss}
+                aria-label="Dismiss"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
         {/* Progress bar */}
         <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
