@@ -326,7 +326,10 @@ export default function HistoryPage() {
               key={`${item.type}-${item.id}`}
               className="flex items-start gap-3 p-3 rounded-lg border border-border bg-card"
             >
-              <Badge variant={item.badgeVariant} className="shrink-0 mt-0.5 text-xs">
+              <Badge
+                variant="outline"
+                className={cn('shrink-0 mt-0.5 text-xs', TYPE_META[item.type].chip, TYPE_META[item.type].chipActive)}
+              >
                 {item.badge}
               </Badge>
               <div className="flex-1 min-w-0">
