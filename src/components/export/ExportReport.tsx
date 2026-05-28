@@ -120,6 +120,7 @@ export default function ExportReport({
               rollup={rollup}
               feeds={feeds}
               pumps={pumps}
+              sleeps={sleeps}
               weights={weights}
               babyBirthDate={baby.birth_date}
               babySex={baby.sex}

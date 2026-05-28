@@ -1,14 +1,15 @@
 'use client'
 
+import { useTheme } from 'next-themes'
 import {
-  ComposedChart, BarChart, Bar, LineChart, Line, Scatter,
+  ComposedChart, Bar, LineChart, Line, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
-import type { DailyRollupRow, FeedRow, PumpRow, WeightRow } from '@/lib/database.types'
+import type { DailyRollupRow, FeedRow, PumpRow, SleepRow, WeightRow } from '@/lib/database.types'
 import { getPercentileTable, kgToOz, formatOz } from '@/lib/who/percentiles'
 import type { BabySex } from '@/lib/database.types'
 
-// ── Linear regression helpers ──────────────────────────────────────────────
+// ── Linear regression ──────────────────────────────────────────────────────
 
 function linearRegression(
   points: { x: number; y: number }[]
@@ -21,13 +22,12 @@ function linearRegression(
   const sumXX = points.reduce((s, p) => s + p.x * p.x, 0)
   const denom = n * sumXX - sumX * sumX
   if (Math.abs(denom) < 1e-10) return null
-  return {
-    slope:     (n * sumXY - sumX * sumY) / denom,
-    intercept: (sumY - sumX * ((n * sumXY - sumX * sumY) / denom)) / n,
-  }
+  const slope     = (n * sumXY - sumX * sumY) / denom
+  const intercept = (sumY - slope * sumX) / n
+  return { slope, intercept }
 }
 
-/** Adds a `trend` field to each element using its array index as x. */
+/** Adds a numeric `trend` field to every array element (index = x). */
 function addIndexTrend<T extends object>(
   arr: T[],
   yGetter: (item: T) => number
@@ -40,7 +40,7 @@ function addIndexTrend<T extends object>(
   }))
 }
 
-/** Returns two {x, trend} endpoints for a regression over timestamp-keyed scatter data. */
+/** Two-point regression line for scatter charts with a numeric x-axis. */
 function tsTrendLine(
   data: { x: number; y: number }[]
 ): { x: number; trend: number }[] {
@@ -56,26 +56,30 @@ function tsTrendLine(
   ]
 }
 
-const TREND_STROKE = '#94a3b8'
-const TREND_DASH   = '5 3'
-const trendLineProps = {
-  name:         'Trend',
-  stroke:       TREND_STROKE,
-  strokeDasharray: TREND_DASH,
-  dot:          false as const,
-  activeDot:    false as const,
-  strokeWidth:  1.5,
-} as const
+// ── Theme helpers ──────────────────────────────────────────────────────────
 
-// ── Misc helpers ───────────────────────────────────────────────────────────
+function useChartTheme() {
+  const { resolvedTheme } = useTheme()
+  const dark = resolvedTheme === 'dark'
+  return {
+    tickFill:   dark ? '#cbd5e1' : '#374151',   // slate-300 / gray-700
+    gridStroke: dark ? '#1e293b' : '#f1f5f9',   // slate-800 / slate-100
+    mutedFill:  dark ? '#475569' : '#94a3b8',   // for WHO lines, etc.
+  }
+}
+
+const TREND_DASH = '5 3'
+
+// ── Misc ───────────────────────────────────────────────────────────────────
 
 interface Props {
-  rollup: DailyRollupRow[]
-  feeds: FeedRow[]
-  pumps: PumpRow[]
-  weights: WeightRow[]
-  babyBirthDate: string
-  babySex: BabySex
+  rollup:         DailyRollupRow[]
+  feeds:          FeedRow[]
+  pumps:          PumpRow[]
+  sleeps:         SleepRow[]
+  weights:        WeightRow[]
+  babyBirthDate:  string
+  babySex:        BabySex
 }
 
 function dayLabel(utcDate: string) {
@@ -89,16 +93,21 @@ function ChartSection({ title, tooltip, children }: { title: string; tooltip: st
         <h3 className="text-sm font-semibold">{title}</h3>
         <span className="text-xs text-muted-foreground mt-0.5 leading-snug">— {tooltip}</span>
       </div>
-      {children}
+      {/* bg-card gives charts a solid backing so they read well over any page background */}
+      <div className="rounded-lg bg-card p-2">
+        {children}
+      </div>
     </div>
   )
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export default function ExportCharts({ rollup, feeds, pumps, weights, babyBirthDate, babySex }: Props) {
+export default function ExportCharts({ rollup, feeds, pumps, sleeps, weights, babyBirthDate, babySex }: Props) {
+  const { tickFill, gridStroke } = useChartTheme()
+  const tick = { fontSize: 11, fill: tickFill }
 
-  // ── 1. Daily intake (stacked bar + total trend) ────────────────────────────
+  // ── 1. Daily intake (stacked bar + total trend) ──────────────────────────
   const intakeRaw = rollup.map((r) => ({
     day:           dayLabel(r.day),
     Formula:       Math.round(r.formula_ml),
@@ -108,7 +117,7 @@ export default function ExportCharts({ rollup, feeds, pumps, weights, babyBirthD
   }))
   const intakeData = addIndexTrend(intakeRaw, (d) => d._total)
 
-  // ── 2. Feed volumes scatter + trend ───────────────────────────────────────
+  // ── 2. Feed volumes scatter + trend ─────────────────────────────────────
   const feedScatterByType = {
     formula:     feeds.filter((f) => f.type === 'formula').map((f) => ({ x: new Date(f.start_at).getTime(), y: f.volume_ml })),
     breast_milk: feeds.filter((f) => f.type === 'breast_milk').map((f) => ({ x: new Date(f.start_at).getTime(), y: f.volume_ml })),
@@ -121,7 +130,12 @@ export default function ExportCharts({ rollup, feeds, pumps, weights, babyBirthD
   ].sort((a, b) => a.x - b.x)
   const feedVolumeTrend = tsTrendLine(allFeedPoints)
 
-  // ── 3. Feed intervals scatter + trend ─────────────────────────────────────
+  const tsTickFormatter = (v: number) =>
+    new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const tsTipLabel = (v: number) =>
+    new Date(v).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+  // ── 3. Feed intervals scatter + trend ────────────────────────────────────
   const feedsSorted = [...feeds].sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
   const intervalData = feedsSorted.slice(1).map((f, i) => ({
     x: new Date(f.start_at).getTime(),
@@ -129,41 +143,45 @@ export default function ExportCharts({ rollup, feeds, pumps, weights, babyBirthD
   }))
   const intervalTrend = tsTrendLine(intervalData)
 
-  // ── 4. Pump output (line + trend) ─────────────────────────────────────────
+  // ── 4. Pump output (line + trend) ────────────────────────────────────────
   const pumpRaw = [...pumps]
     .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
     .map((p) => ({
       x:    new Date(p.start_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: 'numeric' }),
       y:    p.volume_ml,
-      type: p.output_type.replace('_', ' '),
     }))
   const pumpData = addIndexTrend(pumpRaw, (d) => d.y)
 
-  // ── 5. Diaper frequency (grouped bar + trend) ─────────────────────────────
+  // ── 5. Diaper frequency (grouped bar + per-series trends) ─────────────────
   const diaperRaw = rollup.map((r) => ({
     day:   dayLabel(r.day),
     Pees:  Number(r.pee_count),
     Poops: Number(r.poop_count),
   }))
-  const peeReg   = linearRegression(diaperRaw.map((d, i) => ({ x: i, y: d.Pees })))
-  const poopReg  = linearRegression(diaperRaw.map((d, i) => ({ x: i, y: d.Poops })))
+  const peeReg  = linearRegression(diaperRaw.map((d, i) => ({ x: i, y: d.Pees  })))
+  const poopReg = linearRegression(diaperRaw.map((d, i) => ({ x: i, y: d.Poops })))
   const diaperData = diaperRaw.map((d, i) => ({
     ...d,
     peeTrend:  peeReg  ? parseFloat((peeReg.slope  * i + peeReg.intercept).toFixed(2))  : undefined,
     poopTrend: poopReg ? parseFloat((poopReg.slope * i + poopReg.intercept).toFixed(2)) : undefined,
   }))
 
-  // ── 6. Weight curve with WHO percentiles + trend ───────────────────────────
-  const birthMs = new Date(babyBirthDate).getTime()
+  // ── 6. Sleep duration (line + trend) ────────────────────────────────────
+  const sleepRaw = [...(sleeps ?? [])]
+    .filter((s) => s.end_at)
+    .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
+    .map((s) => ({
+      x:     new Date(s.start_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: 'numeric' }),
+      hours: parseFloat(((new Date(s.end_at!).getTime() - new Date(s.start_at).getTime()) / (1000 * 60 * 60)).toFixed(2)),
+    }))
+  const sleepData = addIndexTrend(sleepRaw, (d) => d.hours)
+
+  // ── 7. Weight curve with WHO percentiles + inline trend ──────────────────
+  const birthMs        = new Date(babyBirthDate).getTime()
   const percentileTable = getPercentileTable(babySex)
 
-  const weightChartData: Array<{
-    ageDays: number
-    p3oz?: number
-    p50oz?: number
-    p97oz?: number
-    weightOz?: number
-  }> = []
+  type WeightPoint = { ageDays: number; p3oz?: number; p50oz?: number; p97oz?: number; weightOz?: number; weightTrend?: number }
+  const weightChartData: WeightPoint[] = []
 
   const ageDaySet = new Set<number>()
   percentileTable.forEach((r) => ageDaySet.add(r.week * 7))
@@ -186,43 +204,47 @@ export default function ExportCharts({ rollup, feeds, pumps, weights, babyBirthD
     })
   })
 
-  // Weight trend — computed only over days that have actual measurements
+  // Compute weight regression and add as an inline field so the trend Line
+  // shares the same categorical x-axis as every other Line in the chart.
   const actualWeightPoints = weightChartData
     .filter((d) => d.weightOz !== undefined)
     .map((d) => ({ x: d.ageDays, y: d.weightOz! }))
-  const weightTrend = tsTrendLine(actualWeightPoints)
+  const weightReg = linearRegression(actualWeightPoints)
+  const weightChartDataWithTrend = weightChartData.map((d) => ({
+    ...d,
+    weightTrend: weightReg
+      ? parseFloat((weightReg.slope * d.ageDays + weightReg.intercept).toFixed(2))
+      : undefined,
+  }))
 
-  const tsTickFormatter = (v: number) =>
-    new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  const tsTipFormatter = (v: number) =>
-    new Date(v).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-10 print:space-y-8">
 
-      {/* 1 · Daily intake — stacked bar + trend */}
+      {/* 1 · Daily intake */}
       {intakeData.length > 0 && (
         <ChartSection
           title="Daily intake by type"
-          tooltip="Stacked total ml consumed per day. Dashed line = trend in total daily intake."
+          tooltip="Stacked total ml per day. Dashed line = trend in total daily intake."
         >
           <ResponsiveContainer width="100%" height={240}>
             <ComposedChart data={intakeData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-              <YAxis unit=" ml" tick={{ fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+              <XAxis dataKey="day" tick={tick} />
+              <YAxis unit=" ml" tick={tick} />
               <Tooltip />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="Formula"     stackId="a" fill="#3b82f6" />
               <Bar dataKey="Breast milk" stackId="a" fill="#ec4899" />
               <Bar dataKey="Colostrum"   stackId="a" fill="#f59e0b" />
-              <Line dataKey="trend" {...trendLineProps} />
+              <Line dataKey="trend" name="Trend (total)" stroke="#94a3b8" strokeDasharray={TREND_DASH} strokeWidth={1.5} dot={false} activeDot={false} />
             </ComposedChart>
           </ResponsiveContainer>
         </ChartSection>
       )}
 
-      {/* 2 · Feed volumes — scatter + trend */}
+      {/* 2 · Feed volumes scatter */}
       {feeds.length > 0 && (
         <ChartSection
           title="Feed volumes over time"
@@ -230,75 +252,89 @@ export default function ExportCharts({ rollup, feeds, pumps, weights, babyBirthD
         >
           <ResponsiveContainer width="100%" height={220}>
             <ComposedChart margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="x" type="number" domain={['auto', 'auto']} tickFormatter={tsTickFormatter} tick={{ fontSize: 11 }} />
-              <YAxis dataKey="y" unit=" ml" tick={{ fontSize: 11 }} />
-              <Tooltip labelFormatter={() => ''} formatter={(v, n, p) => [`${(p.payload as {y:number}).y} ml`, tsTipFormatter((p.payload as {x:number}).x)]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+              <XAxis dataKey="x" type="number" domain={['auto', 'auto']} tickFormatter={tsTickFormatter} tick={tick} />
+              <YAxis dataKey="y" unit=" ml" tick={tick} />
+              <Tooltip
+                labelFormatter={() => ''}
+                formatter={(v, name, p) => {
+                  if (name === 'Trend') return null  // hide trend row from per-point tooltip
+                  const { x, y } = p.payload as { x: number; y: number }
+                  return [`${y} ml`, tsTipLabel(x)]
+                }}
+              />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               {feedScatterByType.formula.length     > 0 && <Scatter name="Formula"     data={feedScatterByType.formula}     fill="#3b82f6" />}
               {feedScatterByType.breast_milk.length > 0 && <Scatter name="Breast milk" data={feedScatterByType.breast_milk} fill="#ec4899" />}
               {feedScatterByType.colostrum.length   > 0 && <Scatter name="Colostrum"   data={feedScatterByType.colostrum}   fill="#f59e0b" />}
               {feedVolumeTrend.length > 0 && (
-                <Line data={feedVolumeTrend} dataKey="trend" {...trendLineProps} />
+                <Line data={feedVolumeTrend} dataKey="trend" name="Trend" stroke="#94a3b8" strokeDasharray={TREND_DASH} strokeWidth={1.5} dot={false} activeDot={false} legendType="line" />
               )}
             </ComposedChart>
           </ResponsiveContainer>
         </ChartSection>
       )}
 
-      {/* 3 · Feed intervals — scatter + trend */}
+      {/* 3 · Feed intervals scatter */}
       {intervalData.length > 0 && (
         <ChartSection
           title="Feed intervals"
-          tooltip="Hours between consecutive feed starts. Dashed line = trend. Newborns typically feed every 2–3 h."
+          tooltip="Hours between consecutive feed starts. Newborns typically feed every 2–3 h. Dashed line = trend."
         >
           <ResponsiveContainer width="100%" height={200}>
             <ComposedChart margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="x" type="number" domain={['auto', 'auto']} tickFormatter={tsTickFormatter} tick={{ fontSize: 11 }} />
-              <YAxis dataKey="y" unit=" h" tick={{ fontSize: 11 }} />
-              <Tooltip labelFormatter={() => ''} formatter={(v, n, p) => [`${(p.payload as {y:number}).y} h`, tsTipFormatter((p.payload as {x:number}).x)]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+              <XAxis dataKey="x" type="number" domain={['auto', 'auto']} tickFormatter={tsTickFormatter} tick={tick} />
+              <YAxis dataKey="y" unit=" h" tick={tick} />
+              <Tooltip
+                labelFormatter={() => ''}
+                formatter={(v, name, p) => {
+                  if (name === 'Trend') return null
+                  const { x, y } = p.payload as { x: number; y: number }
+                  return [`${y} h`, tsTipLabel(x)]
+                }}
+              />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Scatter name="Gap" data={intervalData} fill="#8b5cf6" />
               {intervalTrend.length > 0 && (
-                <Line data={intervalTrend} dataKey="trend" {...trendLineProps} />
+                <Line data={intervalTrend} dataKey="trend" name="Trend" stroke="#94a3b8" strokeDasharray={TREND_DASH} strokeWidth={1.5} dot={false} activeDot={false} legendType="line" />
               )}
             </ComposedChart>
           </ResponsiveContainer>
         </ChartSection>
       )}
 
-      {/* 4 · Pump output — line + trend */}
+      {/* 4 · Pump output */}
       {pumpData.length > 0 && (
         <ChartSection
           title="Pump output over time"
-          tooltip="Volume pumped per session. Dashed line = trend. Milk volume typically increases through the first 2 weeks."
+          tooltip="Volume pumped per session. Dashed line = trend."
         >
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={pumpData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="x" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-              <YAxis unit=" ml" tick={{ fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+              <XAxis dataKey="x" tick={tick} interval="preserveStartEnd" />
+              <YAxis unit=" ml" tick={tick} />
               <Tooltip />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Line dataKey="y"     name="Volume (ml)" stroke="#10b981" dot={{ r: 4 }} />
-              <Line dataKey="trend" {...trendLineProps} />
+              <Line dataKey="trend" name="Trend"       stroke="#94a3b8" strokeDasharray={TREND_DASH} strokeWidth={1.5} dot={false} activeDot={false} />
             </LineChart>
           </ResponsiveContainer>
         </ChartSection>
       )}
 
-      {/* 5 · Diaper frequency — grouped bar + trend */}
+      {/* 5 · Diaper frequency */}
       {diaperData.length > 0 && (
         <ChartSection
           title="Diaper frequency"
-          tooltip="Pees and poops per day. Dashed line = trend in total diapers. Adequate wet diapers indicate sufficient hydration."
+          tooltip="Pees and poops per day. Dashed lines = per-type trends."
         >
           <ResponsiveContainer width="100%" height={200}>
             <ComposedChart data={diaperData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+              <XAxis dataKey="day" tick={tick} />
+              <YAxis allowDecimals={false} tick={tick} />
               <Tooltip />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="Pees"  fill="#60a5fa" />
@@ -310,46 +346,55 @@ export default function ExportCharts({ rollup, feeds, pumps, weights, babyBirthD
         </ChartSection>
       )}
 
-      {/* 6 · Weight curve — WHO percentiles + actual + trend */}
+      {/* 6 · Sleep duration */}
+      {sleepData.length > 0 && (
+        <ChartSection
+          title="Sleep duration per session"
+          tooltip="Hours per completed sleep session. Dashed line = trend. Consult your pediatrician for age-appropriate sleep guidance."
+        >
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={sleepData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+              <XAxis dataKey="x" tick={tick} interval="preserveStartEnd" />
+              <YAxis unit=" h" tick={tick} />
+              <Tooltip formatter={(v) => [`${v} h`, 'Duration']} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line dataKey="hours" name="Duration (h)" stroke="#6366f1" dot={{ r: 3 }} />
+              <Line dataKey="trend" name="Trend"        stroke="#94a3b8" strokeDasharray={TREND_DASH} strokeWidth={1.5} dot={false} activeDot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartSection>
+      )}
+
+      {/* 7 · Weight curve */}
       {weights.length > 0 && (
         <ChartSection
           title="Weight curve"
-          tooltip={`WHO ${babySex === 'female' ? 'girls' : 'boys'} reference lines (P3 / P50 / P97). Dashed slate = weight trend. Always discuss weight trends with your pediatrician.`}
+          tooltip={`WHO ${babySex === 'female' ? 'girls' : 'boys'} reference lines (P3 / P50 / P97). Orange dashed = weight trend. Always discuss weight trends with your pediatrician.`}
         >
           <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={weightChartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="ageDays" unit=" d" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatOz(v)} width={70} />
+            <LineChart data={weightChartDataWithTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+              <XAxis dataKey="ageDays" unit=" d" tick={tick} />
+              <YAxis tick={tick} tickFormatter={(v) => formatOz(v)} width={70} />
               <Tooltip
                 formatter={(v, name) => {
                   const oz = Number(v)
                   if (name === 'Actual weight') return [formatOz(oz), name]
-                  if (name === 'Trend') return [formatOz(oz), name]
+                  if (name === 'Weight trend')  return [formatOz(oz), name]
                   return [`${formatOz(oz)} (WHO)`, name]
                 }}
                 labelFormatter={(v) => `Day ${v}`}
               />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Line dataKey="p3oz"     name="P3 (WHO)"      stroke="#94a3b8" strokeDasharray="4 4" dot={false} connectNulls />
-              <Line dataKey="p50oz"    name="P50 (WHO)"     stroke="#64748b" strokeDasharray="6 2" dot={false} connectNulls />
-              <Line dataKey="p97oz"    name="P97 (WHO)"     stroke="#94a3b8" strokeDasharray="4 4" dot={false} connectNulls />
-              <Line dataKey="weightOz" name="Actual weight" stroke="#ef4444" strokeWidth={2} dot={{ r: 5 }} connectNulls={false} />
-              {weightTrend.length > 0 && (
-                <Line
-                  data={weightTrend}
-                  dataKey="trend"
-                  name="Trend"
-                  stroke="#f97316"
-                  strokeDasharray={TREND_DASH}
-                  strokeWidth={1.5}
-                  dot={false}
-                  activeDot={false}
-                />
-              )}
+              <Line dataKey="p3oz"        name="P3 (WHO)"      stroke="#94a3b8" strokeDasharray="4 4" strokeWidth={1} dot={false} connectNulls />
+              <Line dataKey="p50oz"       name="P50 (WHO)"     stroke="#64748b" strokeDasharray="6 2" strokeWidth={1} dot={false} connectNulls />
+              <Line dataKey="p97oz"       name="P97 (WHO)"     stroke="#94a3b8" strokeDasharray="4 4" strokeWidth={1} dot={false} connectNulls />
+              <Line dataKey="weightOz"    name="Actual weight" stroke="#ef4444" strokeWidth={2}       dot={{ r: 5 }} connectNulls={false} />
+              <Line dataKey="weightTrend" name="Weight trend"  stroke="#f97316" strokeDasharray={TREND_DASH} strokeWidth={1.5} dot={false} activeDot={false} connectNulls />
             </LineChart>
           </ResponsiveContainer>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground mt-1">
             WHO Child Growth Standards (2006) — your pediatrician can help interpret this curve.
           </p>
         </ChartSection>
