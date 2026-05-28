@@ -1,14 +1,16 @@
 // Newborn+ Service Worker
 // Caches the app shell for offline use; queues failed writes to sync on reconnect.
 
-const CACHE_NAME = 'newborn-v1'
+const CACHE_NAME = 'newborn-v2'
 const APP_SHELL = [
   '/',
   '/home',
   '/login',
   '/trends',
   '/history',
+  '/ped-notes',
   '/export',
+  '/settings',
 ]
 
 // ── Install: cache app shell ───────────────────────────────────────────────
